@@ -1,13 +1,13 @@
 # Backend - Market Data Service
 
 ## Purpose
-ให้บริการข้อมูลตลาดแก่ frontend และ engine อื่น
+Provide market data to the frontend and other engines.
 
 ## Functional Requirements
-1. อ่าน candles จาก database/cache
-2. ส่ง realtime price/candle ผ่าน WebSocket
-3. คำนวณ indicator เบื้องต้น
-4. ให้ API สำหรับ latest market snapshot
+1. Read candles from the database/cache
+2. Send real-time price/candle data through WebSocket
+3. Calculate basic indicators
+4. Provide an API for the latest market snapshot
 
 ## API / Events Needed
 - `GET /market/candles`
@@ -20,9 +20,9 @@
 - Indicators
 
 ## Acceptance Criteria
-- [ ] frontend ดึงกราฟได้เร็ว
-- [ ] WebSocket ส่งข้อมูลต่อเนื่อง
-- [ ] รองรับหลาย client
+- [ ] The frontend can load charts quickly
+- [ ] WebSocket sends data continuously
+- [ ] Multiple clients are supported
 
 ## Priority
 MVP Core

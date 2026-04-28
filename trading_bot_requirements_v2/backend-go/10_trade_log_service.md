@@ -1,14 +1,14 @@
 # Backend - Trade Log Service
 
 ## Purpose
-บันทึกและให้บริการประวัติ trade/order
+Store and provide trade/order history.
 
 ## Functional Requirements
-1. บันทึก entry/exit
-2. บันทึก PnL, fee, reason
-3. บันทึก AI confidence
-4. query/filter trade logs
-5. รองรับ export ในอนาคต
+1. Store entry/exit data
+2. Store PnL, fees, and reasons
+3. Store AI confidence
+4. Query/filter trade logs
+5. Support export in the future
 
 ## API / Events Needed
 - `GET /trades`
@@ -21,9 +21,9 @@
 - Reason
 
 ## Acceptance Criteria
-- [ ] ทุก trade มี log
-- [ ] ค้นหาตาม symbol/mode/date ได้
-- [ ] ข้อมูลตรงกับ order manager
+- [ ] Every trade has a log
+- [ ] Users can search by symbol/mode/date
+- [ ] Data matches the order manager
 
 ## Priority
 MVP Core

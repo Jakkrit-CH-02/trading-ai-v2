@@ -1,14 +1,14 @@
 # Backend - Paper Trading Engine
 
 ## Purpose
-จำลองการเทรดโดยไม่ใช้เงินจริง
+Simulate trading without using real money.
 
 ## Functional Requirements
-1. จำลอง balance
-2. จำลอง fill price จาก market data
-3. คำนวณ fee/slippage
-4. จัดการ open/closed positions
-5. สร้าง paper trade logs
+1. Simulate balance
+2. Simulate fill price from market data
+3. Calculate fees/slippage
+4. Manage open/closed positions
+5. Create paper trade logs
 
 ## API / Events Needed
 - `GET /paper/portfolio`
@@ -20,9 +20,9 @@
 - Paper trades
 
 ## Acceptance Criteria
-- [ ] ไม่เรียก Binance order endpoint
-- [ ] PnL คำนวณได้
-- [ ] reset portfolio ได้
+- [ ] Binance order endpoints are not called
+- [ ] PnL can be calculated
+- [ ] Portfolio can be reset
 
 ## Priority
 MVP Core

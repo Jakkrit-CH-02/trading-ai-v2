@@ -1,15 +1,15 @@
 # Backend - Order Manager
 
 ## Purpose
-จัดการ order จริงและ order จำลองผ่าน interface เดียว
+Manage real and simulated orders through a single interface.
 
 ## Functional Requirements
-1. สร้าง order request
-2. รองรับ market/limit order
-3. ติดตาม order status
-4. แยก paper/live execution
-5. บันทึก order log
-6. จัดการ retry เฉพาะกรณีปลอดภัย
+1. Create order requests
+2. Support market/limit orders
+3. Track order status
+4. Separate paper/live execution
+5. Store order logs
+6. Retry only when it is safe to do so
 
 ## API / Events Needed
 - `POST /orders`
@@ -23,9 +23,9 @@
 - Fee
 
 ## Acceptance Criteria
-- [ ] order lifecycle ถูกต้อง
-- [ ] paper/live แยกชัดเจน
-- [ ] ไม่ส่ง order ซ้ำโดยไม่ตั้งใจ
+- [ ] Order lifecycle is correct
+- [ ] Paper/live execution is clearly separated
+- [ ] Duplicate orders are not sent unintentionally
 
 ## Priority
 MVP Core

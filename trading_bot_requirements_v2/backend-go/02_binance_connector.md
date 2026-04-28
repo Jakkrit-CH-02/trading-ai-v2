@@ -1,15 +1,15 @@
 # Backend - Binance Connector
 
 ## Purpose
-เชื่อมต่อ Binance REST API และ WebSocket
+Connect to the Binance REST API and WebSocket.
 
 ## Functional Requirements
-1. เชื่อม REST API สำหรับ account/order/exchange info
-2. เชื่อม WebSocket สำหรับ market stream
-3. รองรับ reconnect
-4. จัดการ rate limit
-5. รองรับ testnet/mainnet config
-6. validate API key permission
+1. Connect to the REST API for account/order/exchange info
+2. Connect to WebSocket for market streams
+3. Support reconnection
+4. Handle rate limits
+5. Support testnet/mainnet configuration
+6. Validate API key permissions
 
 ## API / Events Needed
 - `Internal Binance client`
@@ -21,9 +21,9 @@
 - Order response
 
 ## Acceptance Criteria
-- [ ] ดึงข้อมูลตลาดได้
-- [ ] reconnect เมื่อ WebSocket หลุด
-- [ ] ไม่เกิน rate limit โดยไม่จำเป็น
+- [ ] Market data can be fetched
+- [ ] Reconnects when the WebSocket disconnects
+- [ ] Does not exceed rate limits unnecessarily
 
 ## Priority
 MVP Core

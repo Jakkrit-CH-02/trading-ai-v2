@@ -1,14 +1,14 @@
 # AI Service - Dataset Builder
 
 ## Purpose
-เตรียม dataset จากข้อมูลตลาดย้อนหลังเพื่อใช้ train AI
+Prepare datasets from historical market data for AI training.
 
 ## Functional Requirements
-1. โหลด candles จาก database
-2. เลือก symbol/timeframe/date range
-3. สร้าง label เช่น next candle direction หรือ future return
-4. split train/validation/test
-5. บันทึก dataset metadata
+1. Load candles from the database
+2. Select symbol/timeframe/date range
+3. Create labels, such as next candle direction or future return
+4. Split train/validation/test sets
+5. Store dataset metadata
 
 ## API / Events Needed
 - `POST /ai/datasets/build`
@@ -20,9 +20,9 @@
 - Dataset metadata
 
 ## Acceptance Criteria
-- [ ] สร้าง dataset ซ้ำได้
-- [ ] ไม่มี data leakage พื้นฐาน
-- [ ] metadata ครบ
+- [ ] Datasets can be recreated
+- [ ] Basic data leakage is avoided
+- [ ] Metadata is complete
 
 ## Priority
 MVP Core

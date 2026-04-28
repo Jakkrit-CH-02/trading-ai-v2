@@ -1,16 +1,16 @@
 # Frontend - Risk Monitor
 
 ## Purpose
-หน้าแสดงและติดตามความเสี่ยงของระบบ
+Page for displaying and monitoring system risk.
 
 ## Functional Requirements
-1. แสดง max daily loss
-2. แสดง current drawdown
-3. แสดง risk per trade
-4. แสดง leverage และ position size
-5. แสดงจำนวน open positions
-6. แจ้งเตือนเมื่อ risk ใกล้ถึง limit
-7. มีปุ่ม emergency stop/kill switch ใน phase live
+1. Display max daily loss
+2. Display current drawdown
+3. Display risk per trade
+4. Display leverage and position size
+5. Display the number of open positions
+6. Notify users when risk approaches a limit
+7. Provide an emergency stop/kill switch button in the live phase
 
 ## API / Events Needed
 - `GET /api/risk/status`
@@ -24,9 +24,9 @@
 - Risk limits
 
 ## Acceptance Criteria
-- [ ] เห็น risk status ชัดเจน
-- [ ] แสดง warning เมื่อเกิน threshold
-- [ ] risk value ตรงกับ backend
+- [ ] Risk status is clearly visible
+- [ ] Warnings are displayed when thresholds are exceeded
+- [ ] Risk values match the backend
 
 ## Priority
 MVP Core

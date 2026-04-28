@@ -1,13 +1,13 @@
 # AI Service - Signal Explanation
 
 ## Purpose
-อธิบายเหตุผลของ signal เพื่อช่วย debug และแสดงบน dashboard
+Explain signal reasons to support debugging and dashboard display.
 
 ## Functional Requirements
-1. สร้าง explanation จาก feature importance/rules
-2. แสดง top factors ที่มีผลต่อ signal
-3. บันทึก explanation พร้อม trade log
-4. รองรับ explain แบบง่ายใน MVP
+1. Create explanations from feature importance/rules
+2. Display top factors affecting the signal
+3. Store explanations with trade logs
+4. Support simple explanations in the MVP
 
 ## API / Events Needed
 - `Included in /ai/inference response`
@@ -18,9 +18,9 @@
 - Confidence explanation
 
 ## Acceptance Criteria
-- [ ] ทุก signal มี reason ขั้นพื้นฐาน
-- [ ] frontend แสดงเหตุผลได้
-- [ ] ช่วย debug model ได้
+- [ ] Every signal has a basic reason
+- [ ] The frontend can display the reason
+- [ ] Model debugging is supported
 
 ## Priority
 MVP Core

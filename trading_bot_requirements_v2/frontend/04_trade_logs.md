@@ -1,15 +1,15 @@
 # Frontend - Trade Logs
 
 ## Purpose
-หน้าดูประวัติ order และ trade ทั้งหมด
+Page for viewing the full order and trade history.
 
 ## Functional Requirements
-1. แสดง trade list แบบ table
-2. filter ตาม symbol, strategy, mode, date
-3. แสดง entry, exit, quantity, fee, PnL
-4. แสดงเหตุผลการเข้า trade
-5. แสดง AI confidence ตอนเข้า trade
-6. export CSV ได้ในอนาคต
+1. Display the trade list as a table
+2. Filter by symbol, strategy, mode, and date
+3. Display entry, exit, quantity, fee, and PnL
+4. Display the reason for entering the trade
+5. Display AI confidence at trade entry
+6. Support CSV export in the future
 
 ## API / Events Needed
 - `GET /api/trades`
@@ -24,9 +24,9 @@
 - AI confidence
 
 ## Acceptance Criteria
-- [ ] ค้นหาและ filter trade ได้
-- [ ] แสดงข้อมูล PnL ถูกต้อง
-- [ ] เปิดดูรายละเอียด trade รายตัวได้
+- [ ] Users can search and filter trades
+- [ ] PnL data displays correctly
+- [ ] Users can open details for individual trades
 
 ## Priority
 MVP Core

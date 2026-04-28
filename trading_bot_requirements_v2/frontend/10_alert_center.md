@@ -1,14 +1,14 @@
 # Frontend - Alert Center
 
 ## Purpose
-หน้ารวม notification, error, warning และ trade event
+Page for collecting notifications, errors, warnings, and trade events.
 
 ## Functional Requirements
-1. แสดง alert list
-2. แยก severity: info, warning, critical
-3. filter ตาม type/date
-4. mark as read
-5. แสดงรายละเอียด error
+1. Display the alert list
+2. Separate severity levels: info, warning, critical
+3. Filter by type/date
+4. Mark alerts as read
+5. Display error details
 
 ## API / Events Needed
 - `GET /api/alerts`
@@ -22,9 +22,9 @@
 - Related bot/trade/system
 
 ## Acceptance Criteria
-- [ ] รับ alert real-time ได้
-- [ ] แสดง critical alert ชัดเจน
-- [ ] mark as read ได้
+- [ ] Real-time alerts can be received
+- [ ] Critical alerts are clearly displayed
+- [ ] Alerts can be marked as read
 
 ## Priority
 MVP Core

@@ -1,16 +1,16 @@
 # Frontend - Bot Control
 
 ## Purpose
-หน้าควบคุมการทำงานของ bot
+Page for controlling bot operations.
 
 ## Functional Requirements
 1. Start, Stop, Pause bot
-2. เลือก mode: backtest, paper, live
-3. เลือก strategy
-4. เลือก symbol และ timeframe
-5. ตั้ง risk per trade เบื้องต้น
-6. แสดง confirmation ก่อนเปิด live trading
-7. แสดงสถานะ runtime ล่าสุด
+2. Select mode: backtest, paper, live
+3. Select strategy
+4. Select symbol and timeframe
+5. Configure basic risk per trade
+6. Show confirmation before enabling live trading
+7. Display the latest runtime status
 
 ## API / Events Needed
 - `POST /api/bot/start`
@@ -26,9 +26,9 @@
 - Risk config
 
 ## Acceptance Criteria
-- [ ] สั่ง start/stop ได้จากหน้า UI
-- [ ] ไม่สามารถเปิด live trading โดยไม่ confirm
-- [ ] แสดง error message เมื่อ backend ปฏิเสธคำสั่ง
+- [ ] Users can start/stop from the UI
+- [ ] Live trading cannot be enabled without confirmation
+- [ ] Error messages are displayed when the backend rejects a command
 
 ## Priority
 MVP Core

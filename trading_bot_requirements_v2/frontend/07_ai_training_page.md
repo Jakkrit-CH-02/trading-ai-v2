@@ -1,16 +1,16 @@
 # Frontend - AI Training Page
 
 ## Purpose
-หน้าสำหรับสั่ง train AI และดูสถานะ training
+Page for starting AI training and viewing training status.
 
 ## Functional Requirements
-1. เลือก dataset, symbol, timeframe, date range
-2. เลือก feature set
-3. เลือก model type
-4. สั่ง start training
-5. แสดง training progress
-6. แสดง evaluation metrics
-7. เลือก promote model to paper/live ในอนาคต
+1. Select dataset, symbol, timeframe, and date range
+2. Select feature set
+3. Select model type
+4. Start training
+5. Display training progress
+6. Display evaluation metrics
+7. Support promoting a model to paper/live in the future
 
 ## API / Events Needed
 - `POST /api/ai/train`
@@ -23,9 +23,9 @@
 - Dataset config
 
 ## Acceptance Criteria
-- [ ] สั่ง train ได้จาก UI
-- [ ] เห็น progress และผลลัพธ์
-- [ ] ไม่สามารถ deploy model ที่ยังไม่ผ่าน evaluation
+- [ ] Users can start training from the UI
+- [ ] Progress and results are visible
+- [ ] Models that have not passed evaluation cannot be deployed
 
 ## Priority
 MVP Core

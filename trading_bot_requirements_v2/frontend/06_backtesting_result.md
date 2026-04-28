@@ -1,14 +1,14 @@
 # Frontend - Backtesting Result
 
 ## Purpose
-หน้าแสดงผลการทดสอบ strategy จากข้อมูลย้อนหลัง
+Page for displaying strategy test results from historical data.
 
 ## Functional Requirements
-1. เลือก backtest run เพื่อดูผล
-2. แสดง equity curve
-3. แสดง win rate, profit factor, max drawdown
-4. แสดง trade list ของ backtest
-5. เปรียบเทียบหลาย strategy ได้ในอนาคต
+1. Select a backtest run to view results
+2. Display the equity curve
+3. Display win rate, profit factor, and max drawdown
+4. Display the trade list for the backtest
+5. Support comparing multiple strategies in the future
 
 ## API / Events Needed
 - `POST /api/backtests/run`
@@ -21,9 +21,9 @@
 - Trade history
 
 ## Acceptance Criteria
-- [ ] เริ่ม backtest ได้จาก UI
-- [ ] แสดงผลหลัง backend ประมวลผลเสร็จ
-- [ ] metric หลักครบ
+- [ ] Users can start a backtest from the UI
+- [ ] Results are displayed after backend processing completes
+- [ ] Core metrics are complete
 
 ## Priority
 MVP Core

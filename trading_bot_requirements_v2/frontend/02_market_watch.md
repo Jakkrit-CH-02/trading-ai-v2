@@ -1,16 +1,16 @@
 # Frontend - Market Watch
 
 ## Purpose
-หน้าแสดงกราฟราคาและข้อมูลตลาดสำหรับ symbol ที่เลือก
+Page for displaying price charts and market data for the selected symbol.
 
 ## Functional Requirements
-1. เลือก symbol เช่น BTCUSDT, ETHUSDT
-2. เลือก timeframe เช่น 1m, 5m, 15m, 1h, 4h
-3. แสดง candlestick chart
-4. แสดง volume
-5. แสดง indicator overlay เช่น EMA, RSI, MACD
-6. แสดง AI signal marker บนกราฟ
-7. แสดงราคาล่าสุดแบบ real-time
+1. Select a symbol, such as BTCUSDT or ETHUSDT
+2. Select a timeframe, such as 1m, 5m, 15m, 1h, or 4h
+3. Display a candlestick chart
+4. Display volume
+5. Display indicator overlays, such as EMA, RSI, and MACD
+6. Display AI signal markers on the chart
+7. Display the latest price in real time
 
 ## API / Events Needed
 - `GET /api/market/symbols`
@@ -24,9 +24,9 @@
 - AI signal markers
 
 ## Acceptance Criteria
-- [ ] กราฟเปลี่ยนตาม symbol/timeframe ได้
-- [ ] ราคาล่าสุดอัปเดตจาก WebSocket
-- [ ] indicator แสดงถูกต้องตามข้อมูล backend
+- [ ] The chart changes based on the selected symbol/timeframe
+- [ ] The latest price updates from WebSocket
+- [ ] Indicators display correctly based on backend data
 
 ## Priority
 MVP Core

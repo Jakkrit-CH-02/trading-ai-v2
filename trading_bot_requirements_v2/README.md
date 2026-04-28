@@ -1,15 +1,15 @@
 # Binance AI Trading Bot Requirements v2
 
-ชุดเอกสาร requirements แยกตามส่วนระบบ:
+Requirement documents split by system area:
 
 ## Frontend
-หน้าจอสำหรับแสดงผลและควบคุมระบบ
+Screens for monitoring and controlling the system.
 
 ## Backend Go
-ระบบหลักสำหรับเชื่อม Binance, strategy, risk, order, backtest และ paper trading
+Core system for Binance integration, strategy execution, risk checks, order handling, backtesting, and paper trading.
 
 ## AI Python Service
-ระบบสำหรับ dataset, feature engineering, training, model registry และ inference
+Services for datasets, feature engineering, training, model registry, and inference.
 
 ## Recommended Build Order
 

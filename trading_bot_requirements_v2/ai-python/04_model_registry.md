@@ -1,14 +1,14 @@
 # AI Service - Model Registry
 
 ## Purpose
-จัดการ version ของ model ที่ train แล้ว
+Manage versions of trained models.
 
 ## Functional Requirements
-1. บันทึก model version
-2. เก็บ metadata เช่น dataset, features, metrics
-3. ระบุ active model สำหรับ paper/live
-4. rollback model ได้
-5. ป้องกัน deploy model ที่ metric ต่ำกว่าเกณฑ์
+1. Store model versions
+2. Store metadata, such as dataset, features, and metrics
+3. Specify the active model for paper/live
+4. Support model rollback
+5. Prevent deployment of models with metrics below the threshold
 
 ## API / Events Needed
 - `GET /ai/models`
@@ -21,9 +21,9 @@
 - Artifact path
 
 ## Acceptance Criteria
-- [ ] ดู model ทั้งหมดได้
-- [ ] activate/rollback ได้
-- [ ] รู้ว่า production ใช้ model ใด
+- [ ] All models can be viewed
+- [ ] Models can be activated/rolled back
+- [ ] The production model is identifiable
 
 ## Priority
 MVP Core

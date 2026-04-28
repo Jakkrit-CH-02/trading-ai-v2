@@ -1,14 +1,14 @@
 # AI Service - Inference API
 
 ## Purpose
-ให้ backend เรียก AI วิเคราะห์ข้อมูลล่าสุด
+Allow the backend to call AI analysis for the latest data.
 
 ## Functional Requirements
-1. รับ market features ล่าสุด
-2. โหลด active model
-3. ตอบ signal BUY/SELL/HOLD
-4. ตอบ confidence และ risk score
-5. ตอบ latency ต่ำพอสำหรับ timeframe ที่ใช้
+1. Receive the latest market features
+2. Load the active model
+3. Return BUY/SELL/HOLD signals
+4. Return confidence and risk score
+5. Return responses with latency low enough for the selected timeframe
 
 ## API / Events Needed
 - `POST /ai/inference`
@@ -20,9 +20,9 @@
 - Risk score
 
 ## Acceptance Criteria
-- [ ] backend เรียก inference ได้
-- [ ] response schema คงที่
-- [ ] มี fallback เมื่อ model unavailable
+- [ ] The backend can call inference
+- [ ] The response schema is stable
+- [ ] A fallback exists when the model is unavailable
 
 ## Priority
 MVP Core

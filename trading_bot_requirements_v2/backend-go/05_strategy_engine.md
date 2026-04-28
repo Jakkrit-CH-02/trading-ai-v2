@@ -1,14 +1,14 @@
 # Backend - Strategy Engine
 
 ## Purpose
-ประมวลผลกฎการเข้าออก trade
+Process trade entry and exit rules.
 
 ## Functional Requirements
-1. โหลด strategy config
-2. คำนวณ signal จาก indicator/AI
-3. รองรับ BUY/SELL/HOLD
-4. มี rule filter เช่น RSI, EMA, volume
-5. ส่ง signal ให้ risk engine ตรวจต่อ
+1. Load strategy configuration
+2. Calculate signals from indicators/AI
+3. Support BUY/SELL/HOLD
+4. Provide rule filters, such as RSI, EMA, and volume
+5. Send signals to the risk engine for validation
 
 ## API / Events Needed
 - `Internal strategy runner`
@@ -20,9 +20,9 @@
 - Reason
 
 ## Acceptance Criteria
-- [ ] strategy สร้าง signal ได้
-- [ ] บันทึก reason ของ signal
-- [ ] เปลี่ยน strategy config ได้
+- [ ] Strategies can generate signals
+- [ ] Signal reasons are stored
+- [ ] Strategy configuration can be changed
 
 ## Priority
 MVP Core

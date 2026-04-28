@@ -1,14 +1,14 @@
 # Frontend - Paper Trading Page
 
 ## Purpose
-หน้าแสดงผล portfolio จำลองก่อนใช้เงินจริง
+Page for displaying a simulated portfolio before using real money.
 
 ## Functional Requirements
-1. แสดง simulated balance
-2. แสดง simulated open positions
-3. แสดง paper trade history
-4. แสดง performance report
-5. reset portfolio ได้ตาม permission
+1. Display simulated balance
+2. Display simulated open positions
+3. Display paper trade history
+4. Display performance report
+5. Allow portfolio reset based on permissions
 
 ## API / Events Needed
 - `GET /api/paper/portfolio`
@@ -21,9 +21,9 @@
 - Paper PnL
 
 ## Acceptance Criteria
-- [ ] จำลอง portfolio ได้โดยไม่ส่ง order จริง
-- [ ] แยกข้อมูล paper กับ live ชัดเจน
-- [ ] แสดง PnL ของ paper trading
+- [ ] Portfolio simulation works without sending real orders
+- [ ] Paper and live data are clearly separated
+- [ ] Paper trading PnL is displayed
 
 ## Priority
 MVP Core

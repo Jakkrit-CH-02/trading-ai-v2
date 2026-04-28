@@ -1,14 +1,14 @@
 # Backend - Data Collector
 
 ## Purpose
-ดึงและบันทึกข้อมูลตลาดจาก Binance
+Fetch and store market data from Binance.
 
 ## Functional Requirements
-1. ดึง historical candles
-2. subscribe realtime candles
-3. บันทึก OHLCV ลง database
-4. ตรวจ duplicate/missing candles
-5. รองรับหลาย symbol/timeframe
+1. Fetch historical candles
+2. Subscribe to real-time candles
+3. Store OHLCV in the database
+4. Detect duplicate/missing candles
+5. Support multiple symbols/timeframes
 
 ## API / Events Needed
 - `POST /data/download`
@@ -21,9 +21,9 @@
 - Download job
 
 ## Acceptance Criteria
-- [ ] มีข้อมูลย้อนหลังพร้อมใช้ backtest/train
-- [ ] ข้อมูลไม่ซ้ำ
-- [ ] ตรวจ missing candle ได้
+- [ ] Historical data is available for backtesting/training
+- [ ] Data is not duplicated
+- [ ] Missing candles can be detected
 
 ## Priority
 MVP Core

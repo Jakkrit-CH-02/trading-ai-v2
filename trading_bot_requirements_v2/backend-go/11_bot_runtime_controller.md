@@ -1,14 +1,14 @@
 # Backend - Bot Runtime Controller
 
 ## Purpose
-ควบคุม lifecycle ของ bot
+Control the bot lifecycle.
 
 ## Functional Requirements
 1. start/stop/pause/resume bot
-2. จัดการ runtime state
-3. ป้องกันการ start ซ้ำ
-4. ตรวจ health dependency ก่อน start
-5. บันทึก runtime events
+2. Manage runtime state
+3. Prevent duplicate starts
+4. Check dependency health before start
+5. Store runtime events
 
 ## API / Events Needed
 - `POST /bot/start`
@@ -22,9 +22,9 @@
 - Health status
 
 ## Acceptance Criteria
-- [ ] ควบคุม bot ได้ปลอดภัย
-- [ ] state ถูกต้อง
-- [ ] start ไม่ได้ถ้า dependency ไม่พร้อม
+- [ ] Bot control is safe
+- [ ] State is correct
+- [ ] Bot cannot start if dependencies are not ready
 
 ## Priority
 MVP Core

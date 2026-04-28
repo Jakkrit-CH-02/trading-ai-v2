@@ -1,15 +1,15 @@
 # Frontend - Settings
 
 ## Purpose
-หน้าตั้งค่าระบบพื้นฐาน
+Page for configuring basic system settings.
 
 ## Functional Requirements
-1. ตั้ง Binance API key แบบปลอดภัย
-2. เลือก default symbols
-3. ตั้ง default timeframe
-4. ตั้ง risk limits
-5. ตั้ง notification channel
-6. แสดง API permission status
+1. Configure Binance API keys securely
+2. Select default symbols
+3. Configure the default timeframe
+4. Configure risk limits
+5. Configure notification channels
+6. Display API permission status
 
 ## API / Events Needed
 - `GET /api/settings`
@@ -22,9 +22,9 @@
 - Risk config
 
 ## Acceptance Criteria
-- [ ] บันทึก config ได้
-- [ ] ไม่แสดง secret key เต็มบน UI
-- [ ] ทดสอบ Binance API key ได้
+- [ ] Configuration can be saved
+- [ ] Full secret keys are not displayed in the UI
+- [ ] Binance API keys can be tested
 
 ## Priority
 MVP Core

@@ -1,14 +1,14 @@
 # AI Service - Feature Engineering
 
 ## Purpose
-สร้าง features สำหรับ model จากข้อมูลราคาและ volume
+Create model features from price and volume data.
 
 ## Functional Requirements
-1. คำนวณ RSI, MACD, EMA, ATR, Bollinger Bands
-2. สร้าง return/volatility features
-3. สร้าง volume spike features
-4. normalize/scale features
-5. บันทึก feature schema
+1. Calculate RSI, MACD, EMA, ATR, and Bollinger Bands
+2. Create return/volatility features
+3. Create volume spike features
+4. Normalize/scale features
+5. Store feature schema
 
 ## API / Events Needed
 - `Internal feature pipeline`
@@ -19,9 +19,9 @@
 - Feature schema
 
 ## Acceptance Criteria
-- [ ] features train/inference ใช้ schema เดียวกัน
-- [ ] จัดการ missing value ได้
-- [ ] คำนวณ indicator ถูกต้อง
+- [ ] Training and inference features use the same schema
+- [ ] Missing values can be handled
+- [ ] Indicators are calculated correctly
 
 ## Priority
 MVP Core

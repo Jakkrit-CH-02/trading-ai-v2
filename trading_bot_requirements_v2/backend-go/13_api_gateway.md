@@ -1,14 +1,14 @@
 # Backend - API Gateway
 
 ## Purpose
-รวม API endpoint สำหรับ frontend
+Centralize API endpoints for the frontend.
 
 ## Functional Requirements
-1. จัด route ของ backend
-2. ทำ request validation
-3. ทำ auth middleware
-4. ทำ error response format กลาง
-5. ทำ rate limit ภายใน dashboard API
+1. Organize backend routes
+2. Perform request validation
+3. Apply authentication middleware
+4. Provide a shared error response format
+5. Apply rate limiting inside the dashboard API
 
 ## API / Events Needed
 - `All /api/* endpoints`
@@ -18,9 +18,9 @@
 - Error format
 
 ## Acceptance Criteria
-- [ ] API response format สม่ำเสมอ
-- [ ] มี validation
-- [ ] เชื่อม frontend ได้ครบ
+- [ ] API response format is consistent
+- [ ] Validation is available
+- [ ] All frontend integrations are supported
 
 ## Priority
 MVP Core

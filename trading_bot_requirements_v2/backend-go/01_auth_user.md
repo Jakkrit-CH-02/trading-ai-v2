@@ -1,13 +1,13 @@
 # Backend - Auth / User
 
 ## Purpose
-จัดการผู้ใช้ สิทธิ์ และ session สำหรับระบบ dashboard
+Manage users, permissions, and sessions for the dashboard system.
 
 ## Functional Requirements
-1. รองรับ login/logout
-2. จัดการ role เช่น admin, viewer
-3. ป้องกัน endpoint สำคัญด้วย authentication
-4. เก็บ audit log สำหรับ action สำคัญ
+1. Support login/logout
+2. Manage roles, such as admin and viewer
+3. Protect important endpoints with authentication
+4. Store audit logs for important actions
 
 ## API / Events Needed
 - `POST /auth/login`
@@ -21,9 +21,9 @@
 - Audit log
 
 ## Acceptance Criteria
-- [ ] endpoint สำคัญต้อง auth
-- [ ] role จำกัด action ได้
-- [ ] มี audit log สำหรับ start/stop/live
+- [ ] Important endpoints require authentication
+- [ ] Roles can restrict actions
+- [ ] Audit logs exist for start/stop/live actions
 
 ## Priority
 MVP Core

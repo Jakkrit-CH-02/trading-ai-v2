@@ -1,14 +1,14 @@
 # Backend - Alert Service
 
 ## Purpose
-สร้างและส่ง alert จากเหตุการณ์สำคัญ
+Create and send alerts from important events.
 
 ## Functional Requirements
-1. สร้าง alert จาก risk, trade, system error
-2. รองรับ severity
-3. ส่ง WebSocket ไป frontend
-4. รองรับ Telegram/Discord ในอนาคต
-5. เก็บ alert history
+1. Create alerts from risk, trade, and system error events
+2. Support severity levels
+3. Send alerts to the frontend through WebSocket
+4. Support Telegram/Discord in the future
+5. Store alert history
 
 ## API / Events Needed
 - `GET /alerts`
@@ -20,9 +20,9 @@
 - Read status
 
 ## Acceptance Criteria
-- [ ] critical alert ส่งถึง frontend ทันที
-- [ ] เก็บ history
-- [ ] แยก severity ได้
+- [ ] Critical alerts are sent to the frontend immediately
+- [ ] History is stored
+- [ ] Severity levels can be separated
 
 ## Priority
 MVP Core
