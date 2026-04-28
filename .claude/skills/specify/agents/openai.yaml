@@ -1,0 +1,4 @@
+interface:
+  display_name: "Specify"
+  short_description: "Turn agent goals into requirements"
+  default_prompt: "Use $specify to turn my personal AI agent idea into user stories, requirements, acceptance criteria, and open questions."

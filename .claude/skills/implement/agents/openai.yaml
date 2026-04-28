@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement"
+  short_description: "Implement scoped agent tasks"
+  default_prompt: "Use $implement to implement the selected personal AI agent tasks safely and validate the changes."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan"
+  short_description: "Design agent implementation plans"
+  default_prompt: "Use $plan to create an implementation plan for my personal AI agent from the constitution and specification."

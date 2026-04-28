@@ -1,0 +1,4 @@
+interface:
+  display_name: "Constitution"
+  short_description: "Define agent principles and boundaries"
+  default_prompt: "Use $constitution to define the personal AI agent constitution, including principles, privacy rules, boundaries, and governance."
