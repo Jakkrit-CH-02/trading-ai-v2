@@ -1,4 +1,0 @@
-interface:
-  display_name: "Tasks"
-  short_description: "Break agent plans into tasks"
-  default_prompt: "Use $tasks to generate an actionable task list for my personal AI agent from the approved specification and plan."

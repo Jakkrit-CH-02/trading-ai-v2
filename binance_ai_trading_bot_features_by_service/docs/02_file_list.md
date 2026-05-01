@@ -1,0 +1,33 @@
+# File List
+
+- `ai-service/01_dataset_builder.md`
+- `ai-service/02_feature_engineering.md`
+- `ai-service/03_training_pipeline.md`
+- `ai-service/04_model_registry.md`
+- `ai-service/05_inference_api.md`
+- `ai-service/06_backtest_ai_evaluation.md`
+- `ai-service/07_signal_explanation.md`
+- `backend/01_auth_user.md`
+- `backend/02_binance_connector.md`
+- `backend/03_market_data_service.md`
+- `backend/04_strategy_engine.md`
+- `backend/05_risk_engine.md`
+- `backend/06_order_manager.md`
+- `backend/07_paper_trading_engine.md`
+- `backend/08_backtest_engine.md`
+- `backend/09_settings_service.md`
+- `backend/10_alert_service.md`
+- `backend/11_trade_log_service.md`
+- `backend/12_bot_runtime_manager.md`
+- `docs/00_index.md`
+- `docs/01_phase_overview.md`
+- `frontend/01_dashboard.md`
+- `frontend/02_market_watch.md`
+- `frontend/03_bot_control.md`
+- `frontend/04_trade_logs.md`
+- `frontend/05_backtesting_result.md`
+- `frontend/06_ai_training_page.md`
+- `frontend/07_paper_trading_page.md`
+- `frontend/08_risk_monitor.md`
+- `frontend/09_settings.md`
+- `frontend/10_alert_center.md`
