@@ -12,5 +12,19 @@ services:
     image: redis:7-alpine
     ports: ["6379:6379"]
 
+  ai-service:
+    build:
+      context: ./apps/ai-service
+      dockerfile: Dockerfile
+    environment:
+      AI_ENV: dev
+      AI_LOG_LEVEL: INFO
+      AI_HOST: 0.0.0.0
+      AI_PORT: "8001"
+      AI_BACKEND_BASE_URL: http://backend:8000
+    ports: ["8001:8001"]
+    depends_on:
+      - redis
+
 volumes:
   pgdata:

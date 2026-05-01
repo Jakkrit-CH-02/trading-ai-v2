@@ -1,0 +1,30 @@
+env: dev
+mode: paper
+
+server:
+  host: 0.0.0.0
+  port: 8080
+
+binance:
+  base_url: https://testnet.binance.vision
+  ws_url: wss://testnet.binance.vision/ws
+  api_key: "REPLACE_ME_TESTNET_KEY"
+  api_secret: "REPLACE_ME_TESTNET_SECRET"
+  testnet: true
+
+db:
+  dsn: postgres://postgres:postgres@localhost:5432/trading?sslmode=disable
+  max_conns: 10
+  min_conns: 1
+  conn_max_lifetime_sec: 1800
+
+redis:
+  addr: localhost:6379
+  password: ""
+  db: 0
+
+risk:
+  max_position_pct: "0.02"
+  max_daily_drawdown_pct: "0.05"
+  max_slippage_bps: 30
+  require_stop_loss: true

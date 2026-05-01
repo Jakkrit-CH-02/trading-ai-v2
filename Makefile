@@ -1,4 +1,4 @@
-.PHONY: up down dev-fe dev-be dev-ai test lint tidy
+.PHONY: up down dev-fe dev-be dev-ai test lint tidy migrate
 
 up:
 	docker compose up -d postgres redis
@@ -28,3 +28,10 @@ lint:
 
 tidy:
 	cd apps/backend && go mod tidy
+
+migrate:
+	@if [ -d apps/backend/migrations ] && ls apps/backend/migrations/*.sql >/dev/null 2>&1; then \
+		cd apps/backend && goose -dir migrations postgres "$$DATABASE_URL" up; \
+	else \
+		echo "No migrations found in apps/backend/migrations — nothing to do."; \
+	fi
