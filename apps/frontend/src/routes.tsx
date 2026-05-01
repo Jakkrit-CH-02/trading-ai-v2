@@ -12,6 +12,8 @@ import {
 } from "@mui/icons-material";
 import type { ComponentType } from "react";
 import { Box, Typography } from "@mui/material";
+import MarketWatchPage from "./pages/market-watch/MarketWatchPage";
+import DashboardPage from "./pages/dashboard/DashboardPage";
 
 export interface RouteDef {
   path: string;
@@ -41,13 +43,13 @@ export const routes: RouteDef[] = [
     path: "/",
     label: "Dashboard",
     icon: DashboardIcon,
-    element: makePlaceholder("Dashboard"),
+    element: DashboardPage,
   },
   {
     path: "/market",
     label: "Market Watch",
     icon: MarketIcon,
-    element: makePlaceholder("Market Watch"),
+    element: MarketWatchPage,
   },
   {
     path: "/bot",
