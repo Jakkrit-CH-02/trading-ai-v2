@@ -76,6 +76,12 @@ func (s *Server) mountRoutes() {
 	s.router.Get("/api/ai/healthz", s.handleAIHealthz)
 	s.router.Post("/api/ai/datasets/build", s.aiH.BuildDataset)
 	s.router.Post("/api/ai/features/compute", s.aiH.ComputeFeatures)
+	s.router.Post("/api/ai/training/run", s.aiH.RunTraining)
+	s.router.Get("/api/ai/training/{id}", s.aiH.GetTrainingJob)
+	s.router.Get("/api/ai/models", s.aiH.ListModels)
+	s.router.Post("/api/ai/models/{id}/promote", s.aiH.PromoteModel)
+	s.router.Post("/api/ai/predict", s.aiH.Predict)
+	s.router.Post("/api/ai/predict/reload", s.aiH.ReloadModel)
 	// /debug/error always returns the error envelope shape. Useful for
 	// integration tests and frontend wiring; safe to leave mounted because
 	// it carries no behavior beyond producing a deterministic error body.

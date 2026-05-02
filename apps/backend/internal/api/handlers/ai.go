@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type AI struct {
@@ -27,23 +29,63 @@ func NewAI(baseURL string) *AI {
 
 // BuildDataset proxies POST /api/ai/datasets/build to ai-service /api/datasets/build.
 func (a *AI) BuildDataset(w http.ResponseWriter, r *http.Request) {
-	a.proxy(w, r, "/api/datasets/build")
+	a.proxy(w, r, http.MethodPost, "/api/datasets/build")
 }
 
 // ComputeFeatures proxies POST /api/ai/features/compute to ai-service /api/features/compute.
 func (a *AI) ComputeFeatures(w http.ResponseWriter, r *http.Request) {
-	a.proxy(w, r, "/api/features/compute")
+	a.proxy(w, r, http.MethodPost, "/api/features/compute")
 }
 
-func (a *AI) proxy(w http.ResponseWriter, r *http.Request, path string) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeProxyError(w, http.StatusBadRequest, "validation_failed", err.Error())
-		return
-	}
-	defer func() { _ = r.Body.Close() }()
+// RunTraining proxies POST /api/ai/training/run.
+func (a *AI) RunTraining(w http.ResponseWriter, r *http.Request) {
+	a.proxy(w, r, http.MethodPost, "/api/training/run")
+}
 
-	upstream, err := a.forward(r.Context(), path, body)
+// GetTrainingJob proxies GET /api/ai/training/{id}.
+func (a *AI) GetTrainingJob(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	a.proxy(w, r, http.MethodGet, "/api/training/"+id)
+}
+
+// ListModels proxies GET /api/ai/models.
+func (a *AI) ListModels(w http.ResponseWriter, r *http.Request) {
+	a.proxy(w, r, http.MethodGet, "/api/models")
+}
+
+// PromoteModel proxies POST /api/ai/models/{id}/promote.
+func (a *AI) PromoteModel(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	a.proxy(w, r, http.MethodPost, "/api/models/"+id+"/promote")
+}
+
+// Predict proxies POST /api/ai/predict (forwarding the ?explain= query).
+func (a *AI) Predict(w http.ResponseWriter, r *http.Request) {
+	path := "/api/predict"
+	if q := r.URL.RawQuery; q != "" {
+		path += "?" + q
+	}
+	a.proxy(w, r, http.MethodPost, path)
+}
+
+// ReloadModel proxies POST /api/ai/predict/reload.
+func (a *AI) ReloadModel(w http.ResponseWriter, r *http.Request) {
+	a.proxy(w, r, http.MethodPost, "/api/predict/reload")
+}
+
+func (a *AI) proxy(w http.ResponseWriter, r *http.Request, method, path string) {
+	var body []byte
+	if r.Body != nil && method != http.MethodGet {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeProxyError(w, http.StatusBadRequest, "validation_failed", err.Error())
+			return
+		}
+		body = b
+		defer func() { _ = r.Body.Close() }()
+	}
+
+	upstream, err := a.forward(r.Context(), method, path, body)
 	if err != nil {
 		writeProxyError(w, http.StatusBadGateway, "upstream_unavailable", err.Error())
 		return
@@ -53,17 +95,24 @@ func (a *AI) proxy(w http.ResponseWriter, r *http.Request, path string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(upstream.StatusCode)
 	if _, err := io.Copy(w, upstream.Body); err != nil {
-		// Headers are already flushed; nothing useful to recover.
 		return
 	}
 }
 
-func (a *AI) forward(ctx context.Context, path string, body []byte) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+path, bytes.NewReader(body))
+func (a *AI) forward(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
+	var reader *bytes.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	} else {
+		reader = bytes.NewReader(nil)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, a.baseURL+path, reader)
 	if err != nil {
 		return nil, fmt.Errorf("ai proxy: build request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := a.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ai proxy: %s: %w", path, err)
