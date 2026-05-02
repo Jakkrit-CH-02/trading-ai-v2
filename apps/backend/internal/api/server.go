@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/api/handlers"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/platform/config"
 )
 
@@ -30,6 +31,7 @@ type Server struct {
 	pg     Pinger
 	rdb    Pinger
 	ai     *aiClient
+	aiH    *handlers.AI
 }
 
 // New constructs the HTTP server with all middleware and routes mounted.
@@ -42,6 +44,7 @@ func New(cfg config.Config, pg, rdb Pinger) *Server {
 		pg:     pg,
 		rdb:    rdb,
 		ai:     newAIClient(cfg.AI.BaseURL),
+		aiH:    handlers.NewAI(cfg.AI.BaseURL),
 	}
 	s.mountMiddleware()
 	s.mountRoutes()
@@ -71,6 +74,8 @@ func (s *Server) mountMiddleware() {
 func (s *Server) mountRoutes() {
 	s.router.Get("/healthz", s.handleHealthz)
 	s.router.Get("/api/ai/healthz", s.handleAIHealthz)
+	s.router.Post("/api/ai/datasets/build", s.aiH.BuildDataset)
+	s.router.Post("/api/ai/features/compute", s.aiH.ComputeFeatures)
 	// /debug/error always returns the error envelope shape. Useful for
 	// integration tests and frontend wiring; safe to leave mounted because
 	// it carries no behavior beyond producing a deterministic error body.

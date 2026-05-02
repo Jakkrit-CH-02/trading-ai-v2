@@ -57,10 +57,9 @@ api.interceptors.request.use((cfg) => {
 api.interceptors.response.use(
   (res) => res,
   (err: AxiosError<ApiEnvelope<unknown>>) => {
+    const data = err.response?.data;
     const envelopeError =
-      err.response?.data && "error" in err.response.data
-        ? err.response.data.error
-        : null;
+      data && typeof data === "object" && "error" in data ? data.error : null;
     const normalized: ApiError = {
       status: err.response?.status ?? 0,
       code: envelopeError?.code,

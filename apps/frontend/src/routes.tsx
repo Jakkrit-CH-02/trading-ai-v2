@@ -14,6 +14,7 @@ import type { ComponentType } from "react";
 import { Box, Typography } from "@mui/material";
 import MarketWatchPage from "./pages/market-watch/MarketWatchPage";
 import DashboardPage from "./pages/dashboard/DashboardPage";
+import AITrainingPage from "./pages/ai-training/AITrainingPage";
 
 export interface RouteDef {
   path: string;
@@ -85,7 +86,7 @@ export const routes: RouteDef[] = [
     path: "/ai",
     label: "AI Training",
     icon: AiIcon,
-    element: makePlaceholder("AI Training"),
+    element: AITrainingPage,
   },
   {
     path: "/alerts",
