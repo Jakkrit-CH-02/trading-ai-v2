@@ -15,6 +15,10 @@ import { Box, Typography } from "@mui/material";
 import MarketWatchPage from "./pages/market-watch/MarketWatchPage";
 import DashboardPage from "./pages/dashboard/DashboardPage";
 import AITrainingPage from "./pages/ai-training/AITrainingPage";
+import BotControlPage from "./pages/bot-control/BotControlPage";
+import PaperTradingPage from "./pages/paper-trading/PaperTradingPage";
+import TradeLogsPage from "./pages/trade-logs/TradeLogsPage";
+import RiskMonitorPage from "./pages/risk-monitor/RiskMonitorPage";
 
 export interface RouteDef {
   path: string;
@@ -56,25 +60,25 @@ export const routes: RouteDef[] = [
     path: "/bot",
     label: "Bot Control",
     icon: BotIcon,
-    element: makePlaceholder("Bot Control"),
+    element: BotControlPage,
   },
   {
     path: "/paper",
     label: "Paper Trading",
     icon: PaperIcon,
-    element: makePlaceholder("Paper Trading"),
+    element: PaperTradingPage,
   },
   {
     path: "/logs",
     label: "Trade Logs",
     icon: LogsIcon,
-    element: makePlaceholder("Trade Logs"),
+    element: TradeLogsPage,
   },
   {
     path: "/risk",
     label: "Risk Monitor",
     icon: RiskIcon,
-    element: makePlaceholder("Risk Monitor"),
+    element: RiskMonitorPage,
   },
   {
     path: "/backtest",
