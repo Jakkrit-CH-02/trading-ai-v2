@@ -16,13 +16,17 @@ import { useState } from "react";
 import {
   StartRequestSchema,
   getBotStatus,
+  killBot,
   pauseBot,
+  resetBot,
   startBot,
   stopBot,
   type BotState,
   type BotStatus,
   type StartRequest,
 } from "../../api/bot";
+import { useAuthStore } from "../../stores/authStore";
+import LiveConfirmModal from "./LiveConfirmModal";
 import ModeSelector from "./ModeSelector";
 import StrategyPicker from "./StrategyPicker";
 import SymbolTimeframePicker from "./SymbolTimeframePicker";
@@ -121,10 +125,15 @@ function StatusBlock({ status }: { status: BotStatus | undefined }) {
 
 export default function BotControlPage() {
   const qc = useQueryClient();
+  const role = useAuthStore((s) => s.user?.role);
+  const isAdmin = role === "admin";
   const [submitMsg, setSubmitMsg] = useState<{
     kind: "ok" | "err";
     text: string;
   } | null>(null);
+  const [liveModalOpen, setLiveModalOpen] = useState(false);
+  const [liveToken, setLiveToken] = useState<string | null>(null);
+  const [pendingLiveStart, setPendingLiveStart] = useState<StartRequest | null>(null);
 
   const statusQ = useQuery({
     queryKey: ["bot", "status"],
@@ -176,9 +185,54 @@ export default function BotControlPage() {
     },
   });
 
+  const killM = useMutation({
+    mutationFn: killBot,
+    onSuccess: (data) => {
+      qc.setQueryData(["bot", "status"], data);
+      setSubmitMsg({ kind: "ok", text: "Kill switch engaged — bot halted." });
+      setLiveToken(null);
+    },
+    onError: (err: unknown) => {
+      const m = err && typeof err === "object" && "message" in err
+        ? String((err as { message: unknown }).message)
+        : "Kill failed";
+      setSubmitMsg({ kind: "err", text: m });
+    },
+  });
+
+  const resetM = useMutation({
+    mutationFn: resetBot,
+    onSuccess: (data) => {
+      qc.setQueryData(["bot", "status"], data);
+      setSubmitMsg({ kind: "ok", text: "Halt cleared — bot is idle." });
+    },
+  });
+
   const onSubmit = (req: StartRequest) => {
     setSubmitMsg(null);
+    if (req.mode === "live") {
+      if (!isAdmin) {
+        setSubmitMsg({ kind: "err", text: "Live mode requires admin role." });
+        return Promise.resolve();
+      }
+      if (!liveToken) {
+        setPendingLiveStart(req);
+        setLiveModalOpen(true);
+        return Promise.resolve();
+      }
+      return startM.mutateAsync({ ...req, confirmed: true });
+    }
     return startM.mutateAsync(req);
+  };
+
+  const onLiveConfirmed = (token: string) => {
+    setLiveToken(token);
+    setLiveModalOpen(false);
+    if (pendingLiveStart) {
+      const req = pendingLiveStart;
+      setPendingLiveStart(null);
+      startM.mutate({ ...req, confirmed: true });
+    }
   };
 
   return (
@@ -219,9 +273,47 @@ export default function BotControlPage() {
             >
               Stop
             </Button>
+            {statusQ.data && statusQ.data.state !== "idle" ? (
+              <Button
+                variant="contained"
+                color="error"
+                size="large"
+                onClick={() => killM.mutate()}
+                disabled={killM.isPending || statusQ.data.state === "halted"}
+                sx={{
+                  fontWeight: 700,
+                  fontSize: "1rem",
+                  px: 3,
+                  bgcolor: "error.dark",
+                  "&:hover": { bgcolor: "error.main" },
+                }}
+                aria-label="kill switch"
+              >
+                {killM.isPending ? "KILLING…" : "🛑 KILL"}
+              </Button>
+            ) : null}
+            {statusQ.data?.state === "halted" && isAdmin ? (
+              <Button
+                variant="outlined"
+                color="warning"
+                onClick={() => resetM.mutate()}
+                disabled={resetM.isPending}
+              >
+                {resetM.isPending ? "Resetting…" : "Reset (admin)"}
+              </Button>
+            ) : null}
           </Box>
         </CardContent>
       </Card>
+
+      <LiveConfirmModal
+        open={liveModalOpen}
+        onClose={() => { setLiveModalOpen(false); setPendingLiveStart(null); }}
+        onConfirmed={onLiveConfirmed}
+        symbol={pendingLiveStart?.symbol ?? statusQ.data?.symbol ?? ""}
+        maxPositionPct={pendingLiveStart?.risk.max_position_pct ?? 0.02}
+        maxDailyDrawdownPct={pendingLiveStart?.risk.max_daily_drawdown_pct ?? 0.05}
+      />
 
       <Card component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
         <CardContent>

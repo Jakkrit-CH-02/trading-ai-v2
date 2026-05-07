@@ -471,40 +471,40 @@ Stop after tests pass and a manual testnet live run with all conditions on works
 
 ## Progress checklist
 
-- [ ] 1.1  Repo + docker-compose + Makefile
-- [ ] 1.2  Backend skeleton
-- [ ] 1.3  AI service skeleton
-- [ ] 1.4  Frontend skeleton
-- [ ] 1.5  Shared API contract
-- [ ] 1.6  Health checks
-- [ ] 2.1  Binance Connector
-- [ ] 2.2  Market Data Service
-- [ ] 2.3  Frontend Market Watch
-- [ ] 2.4  Frontend Dashboard (initial)
-- [ ] 3.1  AI Dataset Builder
-- [ ] 3.2  AI Feature Engineering
-- [ ] 3.3  Frontend AI Training Page (basic)
-- [ ] 4.1  AI Training Pipeline
-- [ ] 4.2  AI Model Registry
-- [ ] 4.3  AI Inference API
-- [ ] 4.4  AI Signal Explanation
-- [ ] 4.5  Frontend AI Training Page (complete)
-- [ ] 5.1  Strategy Engine
-- [ ] 5.2  Risk Engine
-- [ ] 5.3  Order Manager
-- [ ] 5.4  Paper Trading Engine
-- [ ] 5.5  Trade Log Service
-- [ ] 5.6  Bot Runtime Manager
-- [ ] 5.7  Frontend Bot Control
-- [ ] 5.8  Frontend Paper Trading
-- [ ] 5.9  Frontend Trade Logs
-- [ ] 5.10 Frontend Risk Monitor
-- [ ] 6.1  Backtest Engine
-- [ ] 6.2  AI Backtest Evaluation
-- [ ] 6.3  Frontend Backtesting Result
-- [ ] 7.1  Auth / User
-- [ ] 7.2  Settings Service
-- [ ] 7.3  Alert Service
-- [ ] 7.4  Frontend Settings
-- [ ] 7.5  Frontend Alert Center
-- [ ] 7.6  Live Trading Gate + Kill Switch
+- [x] 1.1  Repo + docker-compose + Makefile
+- [x] 1.2  Backend skeleton
+- [x] 1.3  AI service skeleton
+- [x] 1.4  Frontend skeleton
+- [x] 1.5  Shared API contract
+- [x] 1.6  Health checks
+- [x] 2.1  Binance Connector
+- [x] 2.2  Market Data Service
+- [x] 2.3  Frontend Market Watch
+- [x] 2.4  Frontend Dashboard (initial)
+- [x] 3.1  AI Dataset Builder
+- [x] 3.2  AI Feature Engineering
+- [x] 3.3  Frontend AI Training Page (basic)
+- [x] 4.1  AI Training Pipeline
+- [x] 4.2  AI Model Registry
+- [x] 4.3  AI Inference API
+- [x] 4.4  AI Signal Explanation
+- [x] 4.5  Frontend AI Training Page (complete)
+- [x] 5.1  Strategy Engine
+- [x] 5.2  Risk Engine
+- [x] 5.3  Order Manager
+- [x] 5.4  Paper Trading Engine
+- [x] 5.5  Trade Log Service
+- [x] 5.6  Bot Runtime Manager
+- [x] 5.7  Frontend Bot Control
+- [x] 5.8  Frontend Paper Trading
+- [x] 5.9  Frontend Trade Logs
+- [x] 5.10 Frontend Risk Monitor
+- [x] 6.1  Backtest Engine
+- [x] 6.2  AI Backtest Evaluation
+- [x] 6.3  Frontend Backtesting Result
+- [x] 7.1  Auth / User
+- [x] 7.2  Settings Service
+- [x] 7.3  Alert Service
+- [x] 7.4  Frontend Settings
+- [x] 7.5  Frontend Alert Center
+- [x] 7.6  Live Trading Gate + Kill Switch

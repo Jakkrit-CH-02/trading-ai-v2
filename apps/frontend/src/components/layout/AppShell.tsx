@@ -9,10 +9,13 @@ import {
   Toolbar,
   AppBar,
   Typography,
+  Button,
 } from "@mui/material";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { routes } from "../../routes";
 import HealthBadges from "./HealthBadges";
+import { useAuthStore } from "../../stores/authStore";
+import AlertToastSubscriber from "../../pages/alerts/AlertToastSubscriber";
 
 const DRAWER_WIDTH = 220;
 
@@ -61,8 +64,16 @@ const styles = {
 } as const;
 
 export default function AppShell() {
+  const user = useAuthStore((s) => s.user);
+  const clear = useAuthStore((s) => s.clear);
+  const navigate = useNavigate();
+  const onLogout = () => {
+    clear();
+    navigate("/login", { replace: true });
+  };
   return (
     <Box sx={styles.root}>
+      <AlertToastSubscriber />
       <Drawer variant="permanent" sx={styles.drawer}>
         <Typography sx={styles.brand}>Trading Bot</Typography>
         <List dense>
@@ -94,6 +105,16 @@ export default function AppShell() {
             </Typography>
             <Box sx={{ flex: 1 }} />
             <HealthBadges />
+            {user && (
+              <>
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  {user.username} · {user.role}
+                </Typography>
+                <Button size="small" onClick={onLogout}>
+                  Logout
+                </Button>
+              </>
+            )}
           </Toolbar>
         </AppBar>
         <Box component="main" sx={styles.content}>

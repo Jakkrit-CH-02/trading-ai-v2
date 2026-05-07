@@ -132,6 +132,22 @@ func (c *Client) PlaceOrder(ctx context.Context, req OrderRequest) (*OrderRespon
 	return &out, nil
 }
 
+// CancelAllOpenOrders: DELETE /api/v3/openOrders?symbol=XYZ (signed).
+// Returns the list of canceled orders. A 200 with an empty array means
+// there were no open orders for the symbol.
+func (c *Client) CancelAllOpenOrders(ctx context.Context, symbol string) ([]OrderResponse, error) {
+	if symbol == "" {
+		return nil, errors.New("binance: cancel all: symbol required")
+	}
+	q := url.Values{}
+	q.Set("symbol", symbol)
+	var out []OrderResponse
+	if err := c.do(ctx, http.MethodDelete, "/api/v3/openOrders", q, true, 1, &out); err != nil {
+		return nil, fmt.Errorf("binance: cancel all open orders: %w", err)
+	}
+	return out, nil
+}
+
 // CancelOrder: DELETE /api/v3/order (signed).
 func (c *Client) CancelOrder(ctx context.Context, req CancelRequest) (*OrderResponse, error) {
 	q := url.Values{}

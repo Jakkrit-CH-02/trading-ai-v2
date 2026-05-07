@@ -64,3 +64,23 @@ export const stopBot = (): Promise<BotStatus> =>
 
 export const pauseBot = (): Promise<BotStatus> =>
   unwrap("/api/bot/pause", BotStatusSchema, { method: "post" });
+
+export const killBot = (): Promise<BotStatus> =>
+  unwrap("/api/bot/kill", BotStatusSchema, { method: "post" });
+
+export const resetBot = (): Promise<BotStatus> =>
+  unwrap("/api/bot/reset", BotStatusSchema, { method: "post" });
+
+const LiveConfirmResponseSchema = z.object({ token: z.string().min(1) });
+
+export const confirmLiveTrading = async (phrase: string): Promise<string> => {
+  const { data } = await api.post<ApiEnvelope<unknown>>("/api/bot/live-confirm", {
+    phrase,
+  });
+  if (!data || data.error || data.data == null) {
+    throw new Error(data?.error?.message ?? "live confirmation failed");
+  }
+  return LiveConfirmResponseSchema.parse(data.data).token;
+};
+
+export const LIVE_CONFIRM_PHRASE = "I UNDERSTAND THE RISK";

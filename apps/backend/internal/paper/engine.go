@@ -229,6 +229,54 @@ func (e *Engine) Place(ctx context.Context, o domain.Order) (domain.Order, error
 	return filled, nil
 }
 
+// CancelAllOrders is part of the runtime.Flattener contract. The paper
+// engine fills synchronously in Place — it has no resting orders — so
+// cancellation is a no-op.
+func (e *Engine) CancelAllOrders(_ context.Context) error { return nil }
+
+// FlattenPositions is part of the runtime.Flattener contract. It sells
+// every open long position at the most recent bar close. Errors per-symbol
+// are aggregated; the first one is returned so Kill can log it. All
+// successful exits are committed regardless of any single failure.
+func (e *Engine) FlattenPositions(ctx context.Context) error {
+	e.mu.Lock()
+	type sell struct {
+		sym domain.Symbol
+		qty decimal.Decimal
+	}
+	var work []sell
+	for sym, p := range e.positions {
+		if p.Qty.IsZero() {
+			continue
+		}
+		work = append(work, sell{sym: sym, qty: p.Qty})
+	}
+	e.mu.Unlock()
+
+	var firstErr error
+	for _, w := range work {
+		exit := domain.Order{
+			ID:     "kill-" + string(w.sym),
+			Symbol: w.sym,
+			Side:   domain.SideSell,
+			Type:   domain.OrderTypeMarket,
+			Qty:    w.qty,
+			Mode:   domain.ModePaper,
+		}
+		if _, err := e.Place(ctx, exit); err != nil {
+			slog.ErrorContext(ctx, "paper flatten failed",
+				"service", "paper",
+				"symbol", string(w.sym),
+				"err", err.Error(),
+			)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
 // Reset clears all positions and restores the initial balance. Existing event
 // subscribers continue receiving on the same channel.
 func (e *Engine) Reset() {

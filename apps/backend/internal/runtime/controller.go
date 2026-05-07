@@ -8,8 +8,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/audit"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/domain"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/livegate"
 )
+
+// Flattener is the contract Kill uses to wind down live exposure. The order
+// of calls is fixed: CancelAllOrders first (so resting orders can't fill
+// during teardown), then FlattenPositions (which sends market exits for any
+// remaining inventory). Implementations must be safe to call when there is
+// nothing to do — Kill is a panic button, not a precondition checker.
+type Flattener interface {
+	CancelAllOrders(ctx context.Context) error
+	FlattenPositions(ctx context.Context) error
+}
 
 // stopTimeout bounds how long Stop/Kill will wait for the run loop to exit
 // before returning an error. Acceptance criterion: race-checked shutdown
@@ -35,10 +47,37 @@ type Controller struct {
 	mode   domain.Mode
 	symbol domain.Symbol
 
+	flattener Flattener
+	auditor   audit.Recorder
+	liveTok   string // confirmation token threaded into ctx for live mode
+
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	done   chan struct{}
 	pause  chan struct{} // non-nil while paused; closed on resume/stop
+}
+
+// WithFlattener installs the kill-switch Flattener (paper engine for paper
+// mode; Binance live adapter for live mode). Without one, Kill still halts
+// but cannot cancel/flatten — acceptable for backtest, never for live.
+func (c *Controller) WithFlattener(f Flattener) *Controller {
+	c.flattener = f
+	return c
+}
+
+// WithAuditor installs the audit recorder so Kill and Reset write rows.
+func (c *Controller) WithAuditor(a audit.Recorder) *Controller {
+	c.auditor = a
+	return c
+}
+
+// SetLiveToken stores the live-confirmation token to thread into the run
+// loop's context so every live order Place sees a valid token. Cleared by
+// Stop and Kill so a stale token cannot survive across sessions.
+func (c *Controller) SetLiveToken(token string) {
+	c.mu.Lock()
+	c.liveTok = token
+	c.mu.Unlock()
 }
 
 // NewController constructs a controller. bars is the bar source the run
@@ -167,11 +206,14 @@ func (c *Controller) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Kill is the kill-switch hook. It marks the FSM halted and tears down the
-// run loop. The full kill sequence — cancel open orders, flatten positions,
-// lock out further entries — wires into Sprint 7. For now this is a state
-// transition + loop teardown so the rest of the system can already depend
-// on the API.
+// Kill is the kill-switch hook. It (1) cancels all open orders via the
+// configured Flattener, (2) flattens open positions, (3) tears down the run
+// loop, (4) transitions the FSM to halted, and (5) records an audit entry.
+// The FSM stays halted until Reset is called by an admin — Start is
+// rejected from halted with ErrHalted.
+//
+// Cancel/flatten errors are logged and audited but do not abort the halt:
+// the operator's intent — STOP — must always succeed.
 func (c *Controller) Kill(ctx context.Context) error {
 	c.mu.Lock()
 	cancel := c.cancel
@@ -182,7 +224,31 @@ func (c *Controller) Kill(ctx context.Context) error {
 	}
 	c.cancel = nil
 	c.done = nil
+	flattener := c.flattener
+	auditor := c.auditor
 	c.mu.Unlock()
+
+	var cancelErr, flattenErr error
+	if flattener != nil {
+		if err := flattener.CancelAllOrders(ctx); err != nil {
+			cancelErr = err
+			slog.ErrorContext(ctx, "kill: cancel orders failed",
+				"service", "runtime",
+				"mode", string(c.mode),
+				"symbol", string(c.symbol),
+				"err", err.Error(),
+			)
+		}
+		if err := flattener.FlattenPositions(ctx); err != nil {
+			flattenErr = err
+			slog.ErrorContext(ctx, "kill: flatten positions failed",
+				"service", "runtime",
+				"mode", string(c.mode),
+				"symbol", string(c.symbol),
+				"err", err.Error(),
+			)
+		}
+	}
 
 	if err := c.fsm.Transition(StateHalted); err != nil {
 		return err
@@ -197,12 +263,77 @@ func (c *Controller) Kill(ctx context.Context) error {
 		}
 	}
 
+	if auditor != nil {
+		actor := actorFromContext(ctx)
+		details := fmt.Sprintf("symbol=%s", c.symbol)
+		if cancelErr != nil {
+			details += fmt.Sprintf(" cancel_err=%s", cancelErr.Error())
+		}
+		if flattenErr != nil {
+			details += fmt.Sprintf(" flatten_err=%s", flattenErr.Error())
+		}
+		if err := auditor.Record(ctx, audit.ActionKill, actor, string(c.mode),
+			string(c.symbol), details); err != nil {
+			slog.ErrorContext(ctx, "kill: audit record failed",
+				"service", "runtime",
+				"err", err.Error(),
+			)
+		}
+	}
+
 	slog.WarnContext(ctx, "runtime halted by kill switch",
 		"service", "runtime",
 		"mode", string(c.mode),
 		"symbol", string(c.symbol),
 	)
 	return nil
+}
+
+// Reset moves halted → idle so the bot can be restarted. This is the only
+// path out of halted; it is callable only from halted state. Callers must
+// gate Reset behind an admin role at the HTTP layer — the controller
+// itself is auth-agnostic.
+func (c *Controller) Reset(ctx context.Context) error {
+	if c.fsm.State() != StateHalted {
+		return ErrInvalidTransition
+	}
+	if err := c.fsm.Transition(StateIdle); err != nil {
+		return err
+	}
+	if c.auditor != nil {
+		actor := actorFromContext(ctx)
+		if err := c.auditor.Record(ctx, audit.ActionReset, actor, string(c.mode),
+			string(c.symbol), "halt cleared"); err != nil {
+			slog.ErrorContext(ctx, "reset: audit record failed",
+				"service", "runtime",
+				"err", err.Error(),
+			)
+		}
+	}
+	slog.InfoContext(ctx, "runtime reset from halted",
+		"service", "runtime",
+		"mode", string(c.mode),
+		"symbol", string(c.symbol),
+	)
+	return nil
+}
+
+// actorContextKey + actorFromContext mirror the order package: the HTTP
+// layer attaches the requester username to ctx so audit rows are tied to
+// a real human, not "system".
+type actorContextKey struct{}
+
+// WithActor attaches an actor (username) to ctx for kill/reset audit rows.
+func WithActor(ctx context.Context, actor string) context.Context {
+	return context.WithValue(ctx, actorContextKey{}, actor)
+}
+
+func actorFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(actorContextKey{}).(string)
+	if v == "" {
+		return "system"
+	}
+	return v
 }
 
 // Status is the snapshot returned by GET /api/bot/status.
@@ -252,7 +383,14 @@ func (c *Controller) run(ctx context.Context, done chan struct{}) {
 				case <-pause:
 				}
 			}
-			if _, err := c.pipe.OnBar(ctx, b); err != nil {
+			barCtx := ctx
+			c.mu.Lock()
+			tok := c.liveTok
+			c.mu.Unlock()
+			if tok != "" && c.mode == domain.ModeLive {
+				barCtx = livegate.WithToken(ctx, tok)
+			}
+			if _, err := c.pipe.OnBar(barCtx, b); err != nil {
 				slog.WarnContext(ctx, "runtime: pipeline bar failed",
 					"service", "runtime",
 					"mode", string(c.mode),

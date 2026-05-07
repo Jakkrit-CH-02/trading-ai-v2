@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/api"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/auth"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/platform/config"
 )
 
@@ -26,9 +27,28 @@ type envelope struct {
 
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(api.New(config.Config{}, nil, nil).Handler())
+	s, _ := newTestServerWithAuth(t)
+	return s
+}
+
+// newTestServerWithAuth returns an httptest.Server plus a valid bearer token
+// for an admin user, useful for hitting protected endpoints.
+func newTestServerWithAuth(t *testing.T) (*httptest.Server, string) {
+	t.Helper()
+	cfg := config.Config{}
+	cfg.Auth.JWTSecret = "test-secret"
+	cfg.Auth.JWTTTLSec = 3600
+	apiSrv := api.New(cfg, nil, nil)
+	srv := httptest.NewServer(apiSrv.Handler())
 	t.Cleanup(srv.Close)
-	return srv
+	if _, err := apiSrv.AuthService().Register(t.Context(), "tester", "password123", auth.RoleAdmin); err != nil {
+		t.Fatalf("register tester: %v", err)
+	}
+	tok, _, err := apiSrv.AuthService().Login(t.Context(), "tester", "password123")
+	if err != nil {
+		t.Fatalf("login tester: %v", err)
+	}
+	return srv, tok
 }
 
 func decodeEnvelope(t *testing.T, resp *http.Response) (envelope, map[string]json.RawMessage) {
@@ -77,11 +97,11 @@ func TestEnvelope_HealthzSuccess(t *testing.T) {
 }
 
 func TestEnvelope_DebugErrorFailure(t *testing.T) {
-	srv := newTestServer(t)
+	srv, tok := newTestServerWithAuth(t)
 
 	req, err := http.NewRequest(http.MethodGet, srv.URL+"/debug/error", nil)
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer dev")
+	req.Header.Set("Authorization", "Bearer "+tok)
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -111,5 +131,5 @@ func TestEnvelope_AuthFailureShape(t *testing.T) {
 
 	require.JSONEq(t, `null`, string(raw["data"]))
 	require.NotNil(t, env.Error)
-	require.Equal(t, "forbidden", env.Error.Code)
+	require.Equal(t, "unauthorized", env.Error.Code)
 }

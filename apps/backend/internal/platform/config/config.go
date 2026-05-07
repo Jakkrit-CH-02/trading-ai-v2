@@ -18,12 +18,18 @@ type Config struct {
 	Redis   RedisConfig   `mapstructure:"redis"`
 	Risk    RiskConfig    `mapstructure:"risk"`
 	AI      AIConfig      `mapstructure:"ai"`
+	Auth    AuthConfig    `mapstructure:"auth"`
 	Mode    string        `mapstructure:"mode"`
 	Env     string        `mapstructure:"env"`
 }
 
 type AIConfig struct {
 	BaseURL string `mapstructure:"base_url"`
+}
+
+type AuthConfig struct {
+	JWTSecret string `mapstructure:"jwt_secret"`
+	JWTTTLSec int    `mapstructure:"jwt_ttl_sec"`
 }
 
 type ServerConfig struct {
@@ -96,6 +102,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("risk.max_slippage_bps", 30)
 	v.SetDefault("risk.require_stop_loss", true)
 	v.SetDefault("ai.base_url", "http://localhost:8001")
+	v.SetDefault("auth.jwt_secret", "dev-secret-change-me")
+	v.SetDefault("auth.jwt_ttl_sec", 86400)
 	v.SetDefault("db.max_conns", 10)
 	v.SetDefault("db.min_conns", 1)
 	v.SetDefault("db.conn_max_lifetime_sec", 1800)

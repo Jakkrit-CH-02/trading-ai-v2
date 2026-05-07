@@ -1,4 +1,5 @@
 import axios, { AxiosError } from "axios";
+import { useAuthStore } from "../stores/authStore";
 
 /**
  * Cross-service wire envelope. Mirrors apps/backend/internal/api/response.go.
@@ -49,8 +50,12 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use((cfg) => {
-  const token = import.meta.env.VITE_API_TOKEN ?? "dev";
-  cfg.headers.set("Authorization", `Bearer ${token}`);
+  const token = useAuthStore.getState().token;
+  if (token) {
+    cfg.headers.set("Authorization", `Bearer ${token}`);
+  } else {
+    cfg.headers.delete("Authorization");
+  }
   return cfg;
 });
 
@@ -67,6 +72,9 @@ api.interceptors.response.use(
         envelopeError?.message ?? err.message ?? "Unknown network error",
       details: envelopeError?.details,
     };
+    if (normalized.status === 401) {
+      useAuthStore.getState().clear();
+    }
     return Promise.reject(normalized);
   },
 );

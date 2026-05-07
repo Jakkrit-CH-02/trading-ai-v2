@@ -20,6 +20,8 @@ import PaperTradingPage from "./pages/paper-trading/PaperTradingPage";
 import TradeLogsPage from "./pages/trade-logs/TradeLogsPage";
 import RiskMonitorPage from "./pages/risk-monitor/RiskMonitorPage";
 import BacktestPage from "./pages/backtest/BacktestPage";
+import SettingsPage from "./pages/settings/SettingsPage";
+import AlertsPage from "./pages/alerts/AlertsPage";
 
 export interface RouteDef {
   path: string;
@@ -97,12 +99,12 @@ export const routes: RouteDef[] = [
     path: "/alerts",
     label: "Alerts",
     icon: AlertsIcon,
-    element: makePlaceholder("Alerts"),
+    element: AlertsPage,
   },
   {
     path: "/settings",
     label: "Settings",
     icon: SettingsIcon,
-    element: makePlaceholder("Settings"),
+    element: SettingsPage,
   },
 ];

@@ -211,7 +211,80 @@ function resetPortfolio() {
   nextTradeAt = 0;
 }
 
+interface MockUser {
+  id: string;
+  username: string;
+  password: string;
+  role: "admin" | "operator" | "viewer";
+  created_at: number;
+}
+const mockUsers: MockUser[] = [
+  {
+    id: "u_admin",
+    username: "admin",
+    password: "admin123",
+    role: "admin",
+    created_at: Date.now(),
+  },
+];
+function publicUser(u: MockUser) {
+  return { id: u.id, username: u.username, role: u.role, created_at: u.created_at };
+}
+
 export const handlers = [
+  http.post("*/api/auth/login", async ({ request }) => {
+    const body = (await request.json()) as { username: string; password: string };
+    const u = mockUsers.find(
+      (x) => x.username === body.username && x.password === body.password,
+    );
+    if (!u) {
+      return HttpResponse.json(
+        { data: null, error: { code: "invalid_credentials", message: "invalid username or password" } },
+        { status: 401 },
+      );
+    }
+    return HttpResponse.json({
+      data: { token: "mock-token-" + u.id, user: publicUser(u) },
+      error: null,
+    });
+  }),
+  http.post("*/api/auth/register", async ({ request }) => {
+    const body = (await request.json()) as {
+      username: string;
+      password: string;
+      role: MockUser["role"];
+    };
+    if (mockUsers.some((u) => u.username === body.username)) {
+      return HttpResponse.json(
+        { data: null, error: { code: "user_exists", message: "username already taken" } },
+        { status: 409 },
+      );
+    }
+    const u: MockUser = {
+      id: "u_" + ulid(),
+      username: body.username,
+      password: body.password,
+      role: body.role || "viewer",
+      created_at: Date.now(),
+    };
+    mockUsers.push(u);
+    return HttpResponse.json({ data: publicUser(u), error: null }, { status: 201 });
+  }),
+  http.get("*/api/auth/me", ({ request }) => {
+    const auth = request.headers.get("Authorization") || "";
+    const tok = auth.replace(/^Bearer\s+/i, "");
+    const u = mockUsers.find((x) => tok === "mock-token-" + x.id);
+    if (!u) {
+      return HttpResponse.json(
+        { data: null, error: { code: "unauthorized", message: "invalid token" } },
+        { status: 401 },
+      );
+    }
+    return HttpResponse.json({ data: publicUser(u), error: null });
+  }),
+  http.post("*/api/auth/logout", () =>
+    HttpResponse.json({ data: { ok: true }, error: null }),
+  ),
   http.get("*/api/health", () =>
     HttpResponse.json({ status: "ok", service: "frontend-mock" }),
   ),
@@ -336,6 +409,55 @@ export const handlers = [
       error: null,
     });
   }),
+  // ----- settings (localStorage-backed so changes persist across reload) ---
+  http.get("*/api/settings", () => {
+    const raw = localStorage.getItem("mock:settings");
+    const s = raw
+      ? JSON.parse(raw)
+      : {
+          user_id: "u_admin",
+          default_symbol: "BTCUSDT",
+          default_timeframe: "1m",
+          default_mode: "paper",
+          max_position_pct: "0.02",
+          max_daily_drawdown_pct: "0.05",
+          max_slippage_bps: 30,
+          notify_email: false,
+          notify_webhook_url: "",
+          updated_at: Date.now(),
+        };
+    return HttpResponse.json({ data: s, error: null });
+  }),
+  http.put("*/api/settings", async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const updated = { ...body, updated_at: Date.now() };
+    localStorage.setItem("mock:settings", JSON.stringify(updated));
+    return HttpResponse.json({ data: updated, error: null });
+  }),
+  http.get("*/api/settings/binance-key/status", () => {
+    const raw = localStorage.getItem("mock:binance-key");
+    const s = raw
+      ? JSON.parse(raw)
+      : {
+          configured: false,
+          masked_key: "",
+          permissions: { read: false, spot_trade: false, withdraw: false },
+          testnet: true,
+          last_checked_ms: 0,
+        };
+    return HttpResponse.json({ data: s, error: null });
+  }),
+  http.post("*/api/settings/binance-key/test", () => {
+    const s = {
+      configured: true,
+      masked_key: "abcd••••••••wxyz",
+      permissions: { read: true, spot_trade: true, withdraw: false },
+      testnet: true,
+      last_checked_ms: Date.now(),
+    };
+    localStorage.setItem("mock:binance-key", JSON.stringify(s));
+    return HttpResponse.json({ data: s, error: null });
+  }),
   http.get("*/api/paper/portfolio", () =>
     HttpResponse.json(portfolioPayload()),
   ),
@@ -344,4 +466,86 @@ export const handlers = [
     resetPortfolio();
     return HttpResponse.json(portfolioPayload());
   }),
+  http.get("*/api/alerts", () => {
+    if (mockAlerts.length === 0) seedMockAlerts();
+    maybeAppendMockAlert();
+    return HttpResponse.json({ data: mockAlerts, error: null });
+  }),
+  http.post("*/api/alerts/:id/ack", ({ params }) => {
+    const id = String(params.id);
+    const item = mockAlerts.find((a) => a.id === id);
+    if (!item) {
+      return HttpResponse.json(
+        { data: null, error: { code: "not_found", message: "alert not found" } },
+        { status: 404 },
+      );
+    }
+    item.read = true;
+    return HttpResponse.json({
+      data: { id, status: "acked" },
+      error: null,
+    });
+  }),
 ];
+
+interface MockAlert {
+  id: string;
+  type: string;
+  severity: "info" | "warning" | "critical";
+  message: string;
+  entity: string;
+  read: boolean;
+  created_at: number;
+}
+
+const mockAlerts: MockAlert[] = [];
+
+function seedMockAlerts() {
+  const now = Date.now();
+  mockAlerts.push(
+    {
+      id: "alrt_seed_info",
+      type: "order_rejection",
+      severity: "info",
+      message: "Order rejected: insufficient balance",
+      entity: "ord_001",
+      read: true,
+      created_at: now - 3_600_000,
+    },
+    {
+      id: "alrt_seed_warn",
+      type: "slippage_exceeded",
+      severity: "warning",
+      message: "Slippage 42 bps exceeded threshold 30",
+      entity: "BTCUSDT",
+      read: false,
+      created_at: now - 600_000,
+    },
+    {
+      id: "alrt_seed_crit",
+      type: "kill_triggered",
+      severity: "critical",
+      message: "Kill switch triggered — all positions flattened",
+      entity: "system",
+      read: false,
+      created_at: now - 60_000,
+    },
+  );
+}
+
+let lastAppend = 0;
+function maybeAppendMockAlert() {
+  const now = Date.now();
+  if (now - lastAppend < 12_000) return;
+  lastAppend = now;
+  if (mockAlerts.length >= 10) return;
+  mockAlerts.unshift({
+    id: `alrt_${now}`,
+    type: "drawdown_breach",
+    severity: "warning",
+    message: `Daily drawdown approaching cap (${new Date(now).toLocaleTimeString()})`,
+    entity: "equity",
+    read: false,
+    created_at: now,
+  });
+}
