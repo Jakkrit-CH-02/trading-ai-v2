@@ -83,3 +83,22 @@ class BackendClient:
             )
         out.sort(key=lambda r: r["open_time"])
         return out
+
+    async def fetch_backtest(self, backtest_id: str) -> dict:
+        """Fetch a single backtest result by id.
+
+        Unwraps the standard `{data, error}` envelope and returns the inner
+        result dict (config, metrics, equity_curve, trades, ...).
+        """
+        try:
+            resp = await self._client.get(f"/api/backtest/{backtest_id}")
+            resp.raise_for_status()
+        except httpx.HTTPError as e:
+            raise BackendError(f"backend backtest fetch failed: {e}") from e
+        body = resp.json()
+        if isinstance(body, dict) and "data" in body:
+            err = body.get("error")
+            if err:
+                raise BackendError(f"backend returned error: {err}")
+            return body["data"] or {}
+        return body

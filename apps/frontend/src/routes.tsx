@@ -19,6 +19,7 @@ import BotControlPage from "./pages/bot-control/BotControlPage";
 import PaperTradingPage from "./pages/paper-trading/PaperTradingPage";
 import TradeLogsPage from "./pages/trade-logs/TradeLogsPage";
 import RiskMonitorPage from "./pages/risk-monitor/RiskMonitorPage";
+import BacktestPage from "./pages/backtest/BacktestPage";
 
 export interface RouteDef {
   path: string;
@@ -84,7 +85,7 @@ export const routes: RouteDef[] = [
     path: "/backtest",
     label: "Backtesting",
     icon: BacktestIcon,
-    element: makePlaceholder("Backtesting"),
+    element: BacktestPage,
   },
   {
     path: "/ai",
