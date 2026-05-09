@@ -248,7 +248,7 @@ export default function BotControlPage() {
             <CircularProgress size={20} />
           ) : statusQ.isError ? (
             <Typography color="error">
-              Could not fetch /api/bot/status — backend may not be running.
+              Unable to load bot status. Please check that the backend service is running.
             </Typography>
           ) : (
             <StatusBlock status={statusQ.data} />

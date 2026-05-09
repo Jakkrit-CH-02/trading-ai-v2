@@ -11,7 +11,6 @@ import {
   Settings as SettingsIcon,
 } from "@mui/icons-material";
 import type { ComponentType } from "react";
-import { Box, Typography } from "@mui/material";
 import MarketWatchPage from "./pages/market-watch/MarketWatchPage";
 import DashboardPage from "./pages/dashboard/DashboardPage";
 import AITrainingPage from "./pages/ai-training/AITrainingPage";
@@ -28,22 +27,6 @@ export interface RouteDef {
   label: string;
   icon: ComponentType;
   element: ComponentType;
-}
-
-function makePlaceholder(title: string): ComponentType {
-  function Placeholder() {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Typography variant="h5" sx={{ mb: 1 }}>
-          {title}
-        </Typography>
-        <Typography sx={{ color: "text.secondary" }}>
-          Placeholder — implementation pending.
-        </Typography>
-      </Box>
-    );
-  }
-  return Placeholder;
 }
 
 export const routes: RouteDef[] = [

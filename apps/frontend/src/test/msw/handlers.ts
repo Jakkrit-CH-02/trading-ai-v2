@@ -288,6 +288,21 @@ export const handlers = [
   http.get("*/api/health", () =>
     HttpResponse.json({ status: "ok", service: "frontend-mock" }),
   ),
+  http.get("*/api/ai/healthz", () =>
+    HttpResponse.json({
+      data: { status: "ok", model_loaded: true },
+      error: null,
+    }),
+  ),
+  http.get("*/healthz", () =>
+    HttpResponse.json({
+      data: {
+        status: "ok",
+        deps: { postgres: "up", redis: "up" },
+      },
+      error: null,
+    }),
+  ),
   // TODO: remove once backend ships /api/dashboard/summary
   http.get("*/api/dashboard/summary", () =>
     HttpResponse.json({
@@ -333,7 +348,7 @@ export const handlers = [
     const all = trades
       .slice()
       .reverse()
-      .filter((t) => (mode ? mode === "paper" : true))
+      .filter(() => (mode ? mode === "paper" : true))
       .filter((t) => (symbol ? t.symbol === symbol : true))
       .filter((t) => (fromMs ? t.timestamp_ms >= fromMs : true))
       .filter((t) => (toMs ? t.timestamp_ms <= toMs : true));

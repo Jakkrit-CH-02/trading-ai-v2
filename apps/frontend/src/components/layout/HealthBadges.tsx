@@ -24,7 +24,7 @@ function Badge(props: BadgeProps) {
           px: 1,
           py: 0.25,
           borderRadius: 1,
-          bgcolor: "background.default",
+          bgcolor: "background.paper",
           border: 1,
           borderColor: "divider",
         }}

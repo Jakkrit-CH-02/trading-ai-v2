@@ -65,7 +65,7 @@ export default function RiskMonitorPage() {
           <CardContent sx={styles.loading}>
             {snapQ.isError ? (
               <Typography color="error">
-                Could not fetch /api/risk/snapshot.
+                Unable to load risk data. Please check that the backend service is running.
               </Typography>
             ) : (
               <CircularProgress size={24} />

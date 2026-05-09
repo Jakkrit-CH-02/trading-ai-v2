@@ -177,7 +177,7 @@ export default function PaperTradingPage() {
           >
             {portfolioQ.isError ? (
               <Typography color="error">
-                Could not fetch /api/paper/portfolio.
+                Unable to load portfolio data. Please check that the backend service is running.
               </Typography>
             ) : (
               <CircularProgress size={24} />

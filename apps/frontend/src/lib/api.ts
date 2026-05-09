@@ -41,8 +41,13 @@ export interface ApiError {
   details?: unknown;
 }
 
+const resolvedBaseURL =
+  import.meta.env.VITE_API_BASE_URL !== undefined
+    ? import.meta.env.VITE_API_BASE_URL
+    : "http://localhost:8080";
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080",
+  baseURL: resolvedBaseURL,
   timeout: 15_000,
   headers: {
     "Content-Type": "application/json",
@@ -72,7 +77,8 @@ api.interceptors.response.use(
         envelopeError?.message ?? err.message ?? "Unknown network error",
       details: envelopeError?.details,
     };
-    if (normalized.status === 401) {
+    const reqPath = err.config?.url ?? "";
+    if (normalized.status === 401 && !reqPath.includes("/api/auth/login")) {
       useAuthStore.getState().clear();
     }
     return Promise.reject(normalized);
