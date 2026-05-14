@@ -41,11 +41,12 @@ var ErrHalted = errors.New("runtime: halted")
 // Controller drives the pipeline against a stream of bars and exposes
 // Start/Stop/Pause/Kill. One controller = one strategy + one symbol stream.
 type Controller struct {
-	fsm    *FSM
-	pipe   *Pipeline
-	bars   <-chan domain.Bar
-	mode   domain.Mode
-	symbol domain.Symbol
+	fsm      *FSM
+	pipe     *Pipeline
+	bars     <-chan domain.Bar
+	injectCh chan injectReq // receives manually injected bars with reply channels
+	mode     domain.Mode
+	symbol   domain.Symbol
 
 	flattener Flattener
 	auditor   audit.Recorder
@@ -84,11 +85,43 @@ func (c *Controller) SetLiveToken(token string) {
 // loop drains; closing it terminates the loop cleanly.
 func NewController(pipe *Pipeline, bars <-chan domain.Bar, mode domain.Mode, symbol domain.Symbol) *Controller {
 	return &Controller{
-		fsm:    NewFSM(),
-		pipe:   pipe,
-		bars:   bars,
-		mode:   mode,
-		symbol: symbol,
+		fsm:      NewFSM(),
+		pipe:     pipe,
+		bars:     bars,
+		injectCh: make(chan injectReq, 4),
+		mode:     mode,
+		symbol:   symbol,
+	}
+}
+
+// injectReq bundles a bar with a reply channel for synchronous injection.
+type injectReq struct {
+	bar   domain.Bar
+	reply chan domain.Signal
+}
+
+// InjectBarSync sends a synthetic bar into the run loop and waits for the
+// resulting signal (or a 2s timeout). For dev/test use only.
+func (c *Controller) InjectBarSync(ctx context.Context, b domain.Bar) (domain.Signal, error) {
+	if c.fsm.State() != StateRunning {
+		return domain.Signal{}, fmt.Errorf("runtime: bot is not running")
+	}
+	replyCh := make(chan domain.Signal, 1)
+	req := injectReq{bar: b, reply: replyCh}
+	select {
+	case c.injectCh <- req:
+	default:
+		return domain.Signal{}, fmt.Errorf("runtime: inject buffer full")
+	}
+	timeout := time.NewTimer(2 * time.Second)
+	defer timeout.Stop()
+	select {
+	case sig := <-replyCh:
+		return sig, nil
+	case <-timeout.C:
+		return c.pipe.LastSignal(), nil
+	case <-ctx.Done():
+		return domain.Signal{}, ctx.Err()
 	}
 }
 
@@ -364,6 +397,42 @@ func (c *Controller) Status() Status {
 // when ctx is canceled or the bar channel is closed.
 func (c *Controller) run(ctx context.Context, done chan struct{}) {
 	defer close(done)
+	processBar := func(b domain.Bar) {
+		slog.InfoContext(ctx, "runtime received closed bar",
+			"service", "runtime",
+			"mode", string(c.mode),
+			"symbol", string(b.Symbol),
+			"interval", b.Interval,
+			"close_time", b.CloseTime,
+			"close", b.Close.String(),
+		)
+		// Honor pause: block until resumed or ctx canceled.
+		c.mu.Lock()
+		pause := c.pause
+		c.mu.Unlock()
+		if pause != nil {
+			select {
+			case <-ctx.Done():
+				return
+			case <-pause:
+			}
+		}
+		barCtx := ctx
+		c.mu.Lock()
+		tok := c.liveTok
+		c.mu.Unlock()
+		if tok != "" && c.mode == domain.ModeLive {
+			barCtx = livegate.WithToken(ctx, tok)
+		}
+		if _, err := c.pipe.OnBar(barCtx, b); err != nil {
+			slog.WarnContext(ctx, "runtime: pipeline bar failed",
+				"service", "runtime",
+				"mode", string(c.mode),
+				"symbol", string(b.Symbol),
+				"err", err.Error(),
+			)
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -372,31 +441,11 @@ func (c *Controller) run(ctx context.Context, done chan struct{}) {
 			if !ok {
 				return
 			}
-			// Honor pause: block until resumed or ctx canceled.
-			c.mu.Lock()
-			pause := c.pause
-			c.mu.Unlock()
-			if pause != nil {
-				select {
-				case <-ctx.Done():
-					return
-				case <-pause:
-				}
-			}
-			barCtx := ctx
-			c.mu.Lock()
-			tok := c.liveTok
-			c.mu.Unlock()
-			if tok != "" && c.mode == domain.ModeLive {
-				barCtx = livegate.WithToken(ctx, tok)
-			}
-			if _, err := c.pipe.OnBar(barCtx, b); err != nil {
-				slog.WarnContext(ctx, "runtime: pipeline bar failed",
-					"service", "runtime",
-					"mode", string(c.mode),
-					"symbol", string(b.Symbol),
-					"err", err.Error(),
-				)
+			processBar(b)
+		case req := <-c.injectCh:
+			processBar(req.bar)
+			if req.reply != nil {
+				req.reply <- c.pipe.LastSignal()
 			}
 		}
 	}

@@ -133,3 +133,17 @@ func TestPipeline_RiskRejection_NotFatal(t *testing.T) {
 		require.NoError(t, err)
 	}
 }
+
+func TestPipeline_Warm_PrimesLastSignalWithoutOrders(t *testing.T) {
+	ctx := context.Background()
+	pipe, eng := newTestPipeline(t)
+
+	err := pipe.Warm(ctx, fixtureBars(domain.Symbol("BTCUSDT"))[:8])
+	require.NoError(t, err)
+
+	sig := pipe.LastSignal()
+	require.NotEmpty(t, sig.ID, "warmup should record the latest strategy output")
+	require.Equal(t, domain.Symbol("BTCUSDT"), sig.Symbol)
+	require.True(t, eng.Equity().Equal(decimal.NewFromInt(100_000)), "warmup must not place historical orders")
+	require.Empty(t, eng.Positions(), "warmup must not open positions")
+}

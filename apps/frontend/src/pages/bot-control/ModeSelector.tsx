@@ -35,7 +35,23 @@ export default function ModeSelector(props: ModeSelectorProps) {
         onChange={(e) => onChange(e.target.value as BotMode)}
       >
         {BASE_OPTIONS.map((opt) => {
+          const backtestLocked = opt.value === "backtest";
           const liveLocked = opt.value === "live" && !isAdmin;
+          if (backtestLocked) {
+            return (
+              <Tooltip
+                key={opt.value}
+                title="Historical backtests run from the Backtesting page, not Bot Control"
+                placement="right"
+              >
+                <span>
+                  <MenuItem value={opt.value} disabled>
+                    {opt.label} (use Backtesting page)
+                  </MenuItem>
+                </span>
+              </Tooltip>
+            );
+          }
           if (liveLocked) {
             return (
               <Tooltip

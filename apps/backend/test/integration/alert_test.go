@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/alert"
@@ -14,7 +15,7 @@ import (
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/platform/config"
 )
 
-func newAlertServer(t *testing.T) (*httptest.Server, *alert.Service, *alert.MemoryRepo) {
+func newAlertApp(t *testing.T) (*fiber.App, *alert.Service, *alert.MemoryRepo) {
 	t.Helper()
 	repo := alert.NewMemoryRepo()
 	svc := alert.NewService(repo, alert.StdoutNotifier{})
@@ -22,9 +23,7 @@ func newAlertServer(t *testing.T) (*httptest.Server, *alert.Service, *alert.Memo
 	cfg.Auth.JWTSecret = "test-secret"
 	cfg.Auth.JWTTTLSec = 3600
 	apiSrv := api.New(cfg, nil, nil, api.Options{Alerts: svc})
-	srv := httptest.NewServer(apiSrv.Handler())
-	t.Cleanup(srv.Close)
-	return srv, svc, repo
+	return apiSrv.App(), svc, repo
 }
 
 type alertEnvelope struct {
@@ -40,7 +39,7 @@ type alertEnvelope struct {
 }
 
 func TestAlerts_EachRuleInsertsRow(t *testing.T) {
-	_, svc, repo := newAlertServer(t)
+	_, svc, repo := newAlertApp(t)
 	ctx := context.Background()
 
 	cases := []struct {
@@ -83,30 +82,29 @@ func TestAlerts_EachRuleInsertsRow(t *testing.T) {
 }
 
 func TestAlerts_ListAndAck_HTTP(t *testing.T) {
-	srv, svc, _ := newAlertServer(t)
+	app, svc, _ := newAlertApp(t)
 	ctx := context.Background()
-	tok := registerAndLogin(t, srv.URL, "alertop", "operator")
+	tok := registerAndLogin(t, app, "alertop", "operator")
 
 	a, err := svc.DrawdownBreach(ctx, "BTCUSDT", "daily drawdown exceeded 5%")
 	require.NoError(t, err)
 	_, err = svc.OrderRejected(ctx, "ord_999", "risk_rejected")
 	require.NoError(t, err)
 
-	resp := getURL(t, srv.URL+"/api/alerts", tok)
+	resp := getURL(t, app, "/api/alerts", tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var list alertEnvelope
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&list))
 	resp.Body.Close()
 	require.Len(t, list.Data, 2)
-	// newest first
 	require.Equal(t, "order_rejection", list.Data[0].Type)
 	require.Equal(t, "drawdown_breach", list.Data[1].Type)
 
-	resp = postJSON(t, srv.URL+"/api/alerts/"+a.ID+"/ack", tok, nil)
+	resp = postJSON(t, app, "/api/alerts/"+a.ID+"/ack", tok, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	resp = getURL(t, srv.URL+"/api/alerts", tok)
+	resp = getURL(t, app, "/api/alerts", tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var after alertEnvelope
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&after))
@@ -121,10 +119,13 @@ func TestAlerts_ListAndAck_HTTP(t *testing.T) {
 }
 
 func TestAlerts_AckUnknownReturns404(t *testing.T) {
-	srv, _, _ := newAlertServer(t)
-	tok := registerAndLogin(t, srv.URL, "alertop2", "operator")
+	app, _, _ := newAlertApp(t)
+	tok := registerAndLogin(t, app, "alertop2", "operator")
 
-	resp := postJSON(t, srv.URL+"/api/alerts/does-not-exist/ack", tok, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/alerts/does-not-exist/ack", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := app.Test(req, -1)
+	require.NoError(t, err)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 	resp.Body.Close()
 }

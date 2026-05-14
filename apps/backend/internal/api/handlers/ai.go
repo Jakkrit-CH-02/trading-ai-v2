@@ -6,100 +6,85 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/gofiber/fiber/v2"
 )
 
-type AI struct {
+type aiProxy struct {
 	baseURL string
 	http    *http.Client
 }
 
-func NewAI(baseURL string) *AI {
-	return &AI{
+func newAIProxy(baseURL string) *aiProxy {
+	return &aiProxy{
 		baseURL: baseURL,
 		http:    &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
-// BuildDataset proxies POST /api/ai/datasets/build to ai-service /api/datasets/build.
-func (a *AI) BuildDataset(w http.ResponseWriter, r *http.Request) {
-	a.proxy(w, r, http.MethodPost, "/api/datasets/build")
+func (a *aiProxy) buildDataset(c *fiber.Ctx) error {
+	return a.proxy(c, http.MethodPost, "/api/datasets/build")
 }
 
-// ComputeFeatures proxies POST /api/ai/features/compute to ai-service /api/features/compute.
-func (a *AI) ComputeFeatures(w http.ResponseWriter, r *http.Request) {
-	a.proxy(w, r, http.MethodPost, "/api/features/compute")
+func (a *aiProxy) computeFeatures(c *fiber.Ctx) error {
+	return a.proxy(c, http.MethodPost, "/api/features/compute")
 }
 
-// RunTraining proxies POST /api/ai/training/run.
-func (a *AI) RunTraining(w http.ResponseWriter, r *http.Request) {
-	a.proxy(w, r, http.MethodPost, "/api/training/run")
+func (a *aiProxy) runTraining(c *fiber.Ctx) error {
+	return a.proxy(c, http.MethodPost, "/api/training/run")
 }
 
-// GetTrainingJob proxies GET /api/ai/training/{id}.
-func (a *AI) GetTrainingJob(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	a.proxy(w, r, http.MethodGet, "/api/training/"+id)
+func (a *aiProxy) getTrainingJob(c *fiber.Ctx) error {
+	id := c.Params("id")
+	return a.proxy(c, http.MethodGet, "/api/training/"+id)
 }
 
-// ListModels proxies GET /api/ai/models.
-func (a *AI) ListModels(w http.ResponseWriter, r *http.Request) {
-	a.proxy(w, r, http.MethodGet, "/api/models")
+func (a *aiProxy) listModels(c *fiber.Ctx) error {
+	return a.proxy(c, http.MethodGet, "/api/models")
 }
 
-// PromoteModel proxies POST /api/ai/models/{id}/promote.
-func (a *AI) PromoteModel(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	a.proxy(w, r, http.MethodPost, "/api/models/"+id+"/promote")
+func (a *aiProxy) promoteModel(c *fiber.Ctx) error {
+	id := c.Params("id")
+	return a.proxy(c, http.MethodPost, "/api/models/"+id+"/promote")
 }
 
-// Predict proxies POST /api/ai/predict (forwarding the ?explain= query).
-func (a *AI) Predict(w http.ResponseWriter, r *http.Request) {
+func (a *aiProxy) predict(c *fiber.Ctx) error {
 	path := "/api/predict"
-	if q := r.URL.RawQuery; q != "" {
+	if q := string(c.Request().URI().QueryString()); q != "" {
 		path += "?" + q
 	}
-	a.proxy(w, r, http.MethodPost, path)
+	return a.proxy(c, http.MethodPost, path)
 }
 
-// ReloadModel proxies POST /api/ai/predict/reload.
-func (a *AI) ReloadModel(w http.ResponseWriter, r *http.Request) {
-	a.proxy(w, r, http.MethodPost, "/api/predict/reload")
+func (a *aiProxy) reloadModel(c *fiber.Ctx) error {
+	return a.proxy(c, http.MethodPost, "/api/predict/reload")
 }
 
-func (a *AI) proxy(w http.ResponseWriter, r *http.Request, method, path string) {
+func (a *aiProxy) proxy(c *fiber.Ctx, method, path string) error {
 	var body []byte
-	if r.Body != nil && method != http.MethodGet {
-		b, err := io.ReadAll(r.Body)
-		if err != nil {
-			writeProxyError(w, http.StatusBadRequest, "validation_failed", err.Error())
-			return
-		}
-		body = b
-		defer func() { _ = r.Body.Close() }()
+	if method != http.MethodGet {
+		body = c.Body()
 	}
 
-	upstream, err := a.forward(r.Context(), method, path, body)
+	upstream, err := a.forward(c.UserContext(), method, path, body)
 	if err != nil {
-		writeProxyError(w, http.StatusBadGateway, "upstream_unavailable", err.Error())
-		return
+		return writeError(c, fiber.StatusBadGateway, "upstream_unavailable", err.Error())
 	}
 	defer func() { _ = upstream.Body.Close() }()
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(upstream.StatusCode)
-	if _, err := io.Copy(w, upstream.Body); err != nil {
-		return
+	respBody, err := io.ReadAll(upstream.Body)
+	if err != nil {
+		return writeError(c, fiber.StatusBadGateway, "upstream_unavailable", "failed to read upstream response")
 	}
+	c.Set("Content-Type", "application/json; charset=utf-8")
+	return c.Status(upstream.StatusCode).Send(respBody)
 }
 
-func (a *AI) forward(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
+func (a *aiProxy) forward(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
 	var reader *bytes.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -110,7 +95,7 @@ func (a *AI) forward(ctx context.Context, method, path string, body []byte) (*ht
 	if err != nil {
 		return nil, fmt.Errorf("ai proxy: build request: %w", err)
 	}
-	if body != nil {
+	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := a.http.Do(req)
@@ -118,16 +103,4 @@ func (a *AI) forward(ctx context.Context, method, path string, body []byte) (*ht
 		return nil, fmt.Errorf("ai proxy: %s: %w", path, err)
 	}
 	return resp, nil
-}
-
-func writeProxyError(w http.ResponseWriter, status int, code, msg string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"data": nil,
-		"error": map[string]any{
-			"code":    code,
-			"message": msg,
-		},
-	})
 }

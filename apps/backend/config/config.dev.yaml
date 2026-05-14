@@ -7,9 +7,9 @@ server:
 
 binance:
   base_url: https://testnet.binance.vision
-  ws_url: wss://testnet.binance.vision/ws
-  api_key: "REPLACE_ME_TESTNET_KEY"
-  api_secret: "REPLACE_ME_TESTNET_SECRET"
+  ws_url: wss://stream.testnet.binance.vision
+  api_key: ""
+  api_secret: ""
   testnet: true
 
 db:
@@ -28,3 +28,7 @@ risk:
   max_daily_drawdown_pct: "0.05"
   max_slippage_bps: 30
   require_stop_loss: true
+
+symbols:
+  - BTCUSDT
+  - ETHUSDT

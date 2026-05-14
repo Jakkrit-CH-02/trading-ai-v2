@@ -159,7 +159,7 @@ export default function BotControlPage() {
       qc.invalidateQueries({ queryKey: ["bot", "status"] });
       setSubmitMsg({
         kind: "ok",
-        text: `Bot started — runtime is ${data.state}.`,
+        text: "Bot started. For the fastest signal, keep timeframe at 1m and watch the Paper Trading page for equity and fills after the next closed candle.",
       });
     },
     onError: (err: unknown) => {
@@ -210,6 +210,13 @@ export default function BotControlPage() {
 
   const onSubmit = (req: StartRequest) => {
     setSubmitMsg(null);
+    if (req.mode === "backtest") {
+      setSubmitMsg({
+        kind: "err",
+        text: "Historical backtests run from the Backtesting page. Bot Control only supports paper/live runtime.",
+      });
+      return Promise.resolve();
+    }
     if (req.mode === "live") {
       if (!isAdmin) {
         setSubmitMsg({ kind: "err", text: "Live mode requires admin role." });
@@ -385,6 +392,11 @@ export default function BotControlPage() {
               }}
             />
 
+            <Alert severity="info">
+              Bot Control is for realtime paper/live runtime. You will only see changes after a candle closes,
+              so use `1m` for quick verification and check the Paper Trading page for trades and equity.
+            </Alert>
+
             {submitMsg ? (
               <Alert severity={submitMsg.kind === "ok" ? "success" : "error"}>
                 {submitMsg.text}
@@ -410,4 +422,3 @@ export default function BotControlPage() {
     </Box>
   );
 }
-

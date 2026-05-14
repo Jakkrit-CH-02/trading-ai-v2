@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   CardContent,
+  FormHelperText,
   CircularProgress,
   MenuItem,
   Stack,
@@ -53,28 +54,32 @@ export default function BacktestRunForm(props: BacktestRunFormProps) {
   const { register, handleSubmit, watch } = useForm<BacktestRunFormValues>({
     defaultValues: {
       symbol: "BTCUSDT",
-      interval: "1m",
+      interval: "1h",
       strategy_name: "ma_cross",
       initial_cash: "10000",
       position_fraction: "0.5",
       stop_loss_pct: "0.05",
       from: "",
       to: "",
-      limit: "1000",
+      limit: "",
       fast_period: "9",
       slow_period: "21",
     },
   });
   const strategy = watch("strategy_name");
+  const interval = watch("interval");
+  const from = watch("from");
+  const to = watch("to");
 
   const submit = handleSubmit((v) => {
     const fromMs = v.from ? Date.parse(v.from) : 0;
-    const toMs = v.to ? Date.parse(v.to) : 0;
+    const toMs = v.to ? Date.parse(v.to) : Date.now();
     const params: Record<string, string> = {};
     if (v.strategy_name === "ma_cross") {
-      if (v.fast_period) params.fast_period = v.fast_period;
-      if (v.slow_period) params.slow_period = v.slow_period;
+      if (v.fast_period) params.fast = v.fast_period;
+      if (v.slow_period) params.slow = v.slow_period;
     }
+    const derivedLimit = estimateLimit(v.interval, fromMs, toMs);
     const input: RunBacktestInput = {
       symbol: v.symbol.trim().toUpperCase(),
       interval: v.interval,
@@ -84,11 +89,14 @@ export default function BacktestRunForm(props: BacktestRunFormProps) {
       position_fraction: v.position_fraction,
       stop_loss_pct: v.stop_loss_pct,
       from_ms: Number.isFinite(fromMs) && fromMs > 0 ? fromMs : undefined,
-      to_ms: Number.isFinite(toMs) && toMs > 0 ? toMs : undefined,
-      limit: v.limit ? Number(v.limit) : undefined,
+      to_ms: Number.isFinite(toMs) && toMs > 0 && v.from ? toMs : undefined,
+      limit: v.limit ? Number(v.limit) : derivedLimit,
     };
     onSubmit(input);
   });
+
+  const estimatedBars = estimateLimit(interval, from ? Date.parse(from) : 0, to ? Date.parse(to) : Date.now());
+  const isLongRange = Boolean(from) && estimatedBars !== undefined && estimatedBars > 5000;
 
   return (
     <Card>
@@ -107,7 +115,7 @@ export default function BacktestRunForm(props: BacktestRunFormProps) {
               label="Interval"
               size="small"
               select
-              defaultValue="1m"
+              defaultValue="1h"
               {...register("interval")}
             >
               {INTERVALS.map((i) => (
@@ -181,6 +189,16 @@ export default function BacktestRunForm(props: BacktestRunFormProps) {
               </>
             ) : null}
           </Box>
+          <FormHelperText sx={{ mt: 1 }}>
+            Leave `Bar limit` blank to auto-size from the selected range. For quick visual verification,
+            use `1h` or `4h` on long ranges; `1m` over months can still be slow.
+          </FormHelperText>
+          {isLongRange ? (
+            <FormHelperText sx={{ mt: 0.5 }} error>
+              This range is about {estimatedBars.toLocaleString()} bars at `{interval}`. The app will cap
+              the run to 10,000 bars unless you narrow the range or increase the interval.
+            </FormHelperText>
+          ) : null}
           <Stack direction="row" spacing={2} sx={{ mt: 3 }}>
             <Button
               type="submit"
@@ -201,4 +219,34 @@ export default function BacktestRunForm(props: BacktestRunFormProps) {
       </CardContent>
     </Card>
   );
+}
+
+function estimateLimit(interval: string, fromMs: number, toMs: number): number | undefined {
+  if (!Number.isFinite(fromMs) || fromMs <= 0 || !Number.isFinite(toMs) || toMs <= fromMs) {
+    return undefined;
+  }
+  const stepMs = intervalToMs(interval);
+  if (!stepMs) {
+    return undefined;
+  }
+  const bars = Math.floor((toMs - fromMs) / stepMs) + 1;
+  return Math.min(Math.max(bars, 1), 10000);
+}
+
+function intervalToMs(interval: string): number | undefined {
+  const value = Number(interval.slice(0, -1));
+  if (!Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  const unit = interval.slice(-1);
+  switch (unit) {
+    case "m":
+      return value * 60_000;
+    case "h":
+      return value * 3_600_000;
+    case "d":
+      return value * 86_400_000;
+    default:
+      return undefined;
+  }
 }

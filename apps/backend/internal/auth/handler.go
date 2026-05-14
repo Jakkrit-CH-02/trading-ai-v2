@@ -1,25 +1,17 @@
 package auth
 
 import (
-	"encoding/json"
 	"errors"
-	"net/http"
-)
 
-// Writer is the JSON envelope writer plugged in by the api package, so
-// internal/auth has no import dependency on internal/api.
-type Writer interface {
-	WriteJSON(w http.ResponseWriter, status int, data interface{})
-	WriteError(w http.ResponseWriter, status int, code, msg string)
-}
+	"github.com/gofiber/fiber/v2"
+)
 
 // Handler exposes auth HTTP endpoints.
 type Handler struct {
 	svc *Service
-	wr  Writer
 }
 
-func NewHandler(svc *Service, wr Writer) *Handler { return &Handler{svc: svc, wr: wr} }
+func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 
 type registerReq struct {
 	Username string `json:"username"`
@@ -37,67 +29,65 @@ type loginResp struct {
 	User  PublicUser `json:"user"`
 }
 
-func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Register(c *fiber.Ctx) error {
 	var req registerReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.wr.WriteError(w, http.StatusBadRequest, "validation_failed", "invalid json")
-		return
+	if err := c.BodyParser(&req); err != nil {
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", "invalid json")
 	}
-	u, err := h.svc.Register(r.Context(), req.Username, req.Password, req.Role)
+	u, err := h.svc.Register(c.UserContext(), req.Username, req.Password, req.Role)
 	switch {
 	case errors.Is(err, ErrUserExists):
-		h.wr.WriteError(w, http.StatusConflict, "user_exists", "username already taken")
-		return
+		return errResp(c, fiber.StatusConflict, "user_exists", "username already taken")
 	case errors.Is(err, ErrInvalidRole):
-		h.wr.WriteError(w, http.StatusBadRequest, "validation_failed", "invalid role")
-		return
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", "invalid role")
 	case errors.Is(err, ErrWeakPassword):
-		h.wr.WriteError(w, http.StatusBadRequest, "validation_failed", "password must be >= 8 chars")
-		return
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", "password must be >= 8 chars")
 	case errors.Is(err, ErrInvalidUsername):
-		h.wr.WriteError(w, http.StatusBadRequest, "validation_failed", "username must be >= 3 chars")
-		return
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", "username must be >= 3 chars")
 	case err != nil:
-		h.wr.WriteError(w, http.StatusInternalServerError, "internal", "register failed")
-		return
+		return errResp(c, fiber.StatusInternalServerError, "internal", "register failed")
 	}
-	h.wr.WriteJSON(w, http.StatusCreated, u)
+	return c.Status(fiber.StatusCreated).JSON(okEnv(u))
 }
 
-func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Login(c *fiber.Ctx) error {
 	var req loginReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.wr.WriteError(w, http.StatusBadRequest, "validation_failed", "invalid json")
-		return
+	if err := c.BodyParser(&req); err != nil {
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", "invalid json")
 	}
-	tok, u, err := h.svc.Login(r.Context(), req.Username, req.Password)
+	tok, u, err := h.svc.Login(c.UserContext(), req.Username, req.Password)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCreds) {
-			h.wr.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
-			return
+			return errResp(c, fiber.StatusUnauthorized, "invalid_credentials", "invalid username or password")
 		}
-		h.wr.WriteError(w, http.StatusInternalServerError, "internal", "login failed")
-		return
+		return errResp(c, fiber.StatusInternalServerError, "internal", "login failed")
 	}
-	h.wr.WriteJSON(w, http.StatusOK, loginResp{Token: tok, User: u})
+	return c.JSON(okEnv(loginResp{Token: tok, User: u}))
 }
 
-func (h *Handler) Logout(w http.ResponseWriter, _ *http.Request) {
-	// Stateless JWT: client drops the token. Endpoint exists for symmetry
-	// and audit hooks.
-	h.wr.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
+func (h *Handler) Logout(c *fiber.Ctx) error {
+	return c.JSON(okEnv(map[string]bool{"ok": true}))
 }
 
-func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
-	c, ok := ClaimsFromContext(r.Context())
+func (h *Handler) Me(c *fiber.Ctx) error {
+	cl, ok := ClaimsFromContext(c.UserContext())
 	if !ok {
-		h.wr.WriteError(w, http.StatusUnauthorized, "unauthorized", "no auth context")
-		return
+		return errResp(c, fiber.StatusUnauthorized, "unauthorized", "no auth context")
 	}
-	u, err := h.svc.Me(r.Context(), c.UserID)
+	u, err := h.svc.Me(c.UserContext(), cl.UserID)
 	if err != nil {
-		h.wr.WriteError(w, http.StatusNotFound, "not_found", "user not found")
-		return
+		return errResp(c, fiber.StatusNotFound, "not_found", "user not found")
 	}
-	h.wr.WriteJSON(w, http.StatusOK, u)
+	return c.JSON(okEnv(u))
+}
+
+func okEnv(data interface{}) fiber.Map {
+	return fiber.Map{"data": data, "error": nil}
+}
+
+func errResp(c *fiber.Ctx, status int, code, msg string) error {
+	return c.Status(status).JSON(fiber.Map{
+		"data":  nil,
+		"error": fiber.Map{"code": code, "message": msg},
+	})
 }

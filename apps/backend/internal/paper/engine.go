@@ -67,6 +67,20 @@ func NewEngine(initialCash decimal.Decimal) *Engine {
 // Events returns the read end of the trade-log channel.
 func (e *Engine) Events() <-chan TradeLogEvent { return e.events }
 
+// Cash returns the current cash balance (excluding open positions).
+func (e *Engine) Cash() decimal.Decimal {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.cash
+}
+
+// Initial returns the starting cash balance.
+func (e *Engine) Initial() decimal.Decimal {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.initial
+}
+
 // OnBar feeds the latest bar so the engine can mark positions and price
 // subsequent fills. Must be called at least once per symbol before Place.
 func (e *Engine) OnBar(b domain.Bar) {

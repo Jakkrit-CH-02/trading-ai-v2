@@ -13,6 +13,7 @@ type Settings struct {
 	UserID              string
 	DefaultSymbol       string
 	DefaultTimeframe    string
+	DefaultMode         string
 	MaxPositionPct      decimal.Decimal
 	MaxDailyDrawdownPct decimal.Decimal
 	MaxSlippageBps      int
@@ -27,6 +28,7 @@ func Default(userID string) Settings {
 		UserID:              userID,
 		DefaultSymbol:       "BTCUSDT",
 		DefaultTimeframe:    "1m",
+		DefaultMode:         "paper",
 		MaxPositionPct:      decimal.NewFromFloat(0.02),
 		MaxDailyDrawdownPct: decimal.NewFromFloat(0.05),
 		MaxSlippageBps:      30,

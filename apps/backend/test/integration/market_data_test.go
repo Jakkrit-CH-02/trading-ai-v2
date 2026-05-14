@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/gofiber/fiber/v2"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/api/handlers"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/binance"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/data"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/data/collector"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/data/market"
@@ -169,16 +171,19 @@ func TestMarketData_CollectorWritesAndAPIServes(t *testing.T) {
 	again, _ := repo.GetBars(ctx, sym, "1m", 10)
 	require.Len(t, again, 3)
 
-	// HTTP layer
+	// HTTP layer: create a Fiber app with just the market routes.
 	svc := market.NewService(cache, repo, []domain.Symbol{sym, "ETHUSDT"})
-	r := chi.NewRouter()
-	market.NewHandler(svc).Mount(r)
-	srv := httptest.NewServer(r)
-	defer srv.Close()
+	app := newMarketApp(svc)
+
+	do := func(path string) *http.Response {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp, err := app.Test(req, -1)
+		require.NoError(t, err)
+		return resp
+	}
 
 	t.Run("symbols", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/api/market/symbols")
-		require.NoError(t, err)
+		resp := do("/api/market/symbols")
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		_, raw := decodeEnvelope(t, resp)
@@ -192,8 +197,7 @@ func TestMarketData_CollectorWritesAndAPIServes(t *testing.T) {
 	})
 
 	t.Run("candles", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/api/market/candles?symbol=BTCUSDT&interval=1m&limit=10")
-		require.NoError(t, err)
+		resp := do("/api/market/candles?symbol=BTCUSDT&interval=1m&limit=10")
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		_, raw := decodeEnvelope(t, resp)
@@ -218,8 +222,7 @@ func TestMarketData_CollectorWritesAndAPIServes(t *testing.T) {
 	})
 
 	t.Run("snapshot cache hit", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/api/market/snapshot?symbol=BTCUSDT&interval=1m")
-		require.NoError(t, err)
+		resp := do("/api/market/snapshot?symbol=BTCUSDT&interval=1m")
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		_, raw := decodeEnvelope(t, resp)
@@ -241,15 +244,11 @@ func TestMarketData_CollectorWritesAndAPIServes(t *testing.T) {
 	})
 
 	t.Run("snapshot postgres fallback", func(t *testing.T) {
-		// Empty the cache; service should fall back to the repo.
 		emptyCache := newFakeCache()
 		fbSvc := market.NewService(emptyCache, repo, []domain.Symbol{sym})
-		fbR := chi.NewRouter()
-		market.NewHandler(fbSvc).Mount(fbR)
-		fbSrv := httptest.NewServer(fbR)
-		defer fbSrv.Close()
-
-		resp, err := http.Get(fbSrv.URL + "/api/market/snapshot?symbol=BTCUSDT&interval=1m")
+		fbApp := newMarketApp(fbSvc)
+		req := httptest.NewRequest(http.MethodGet, "/api/market/snapshot?symbol=BTCUSDT&interval=1m", nil)
+		resp, err := fbApp.Test(req, -1)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -266,8 +265,7 @@ func TestMarketData_CollectorWritesAndAPIServes(t *testing.T) {
 	})
 
 	t.Run("snapshot not found", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/api/market/snapshot?symbol=ETHUSDT&interval=1m")
-		require.NoError(t, err)
+		resp := do("/api/market/snapshot?symbol=ETHUSDT&interval=1m")
 		require.Equal(t, http.StatusNotFound, resp.StatusCode)
 
 		env, raw := decodeEnvelope(t, resp)
@@ -277,8 +275,7 @@ func TestMarketData_CollectorWritesAndAPIServes(t *testing.T) {
 	})
 
 	t.Run("candles validation", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/api/market/candles?interval=1m")
-		require.NoError(t, err)
+		resp := do("/api/market/candles?interval=1m")
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 		env, _ := decodeEnvelope(t, resp)
@@ -290,4 +287,16 @@ func TestMarketData_CollectorWritesAndAPIServes(t *testing.T) {
 // Sanity check: the data.ErrNotFound sentinel is exported and comparable.
 func TestMarketData_ErrNotFoundIsExported(t *testing.T) {
 	require.True(t, errors.Is(data.ErrNotFound, data.ErrNotFound))
+}
+
+// newMarketApp creates a minimal Fiber app with only market routes wired,
+// used by HTTP-layer subtests to avoid spinning up the full server.
+func newMarketApp(svc *market.Service) *fiber.App {
+	app := fiber.New()
+	handlers.RegisterRoutes(app, handlers.Deps{
+		MarketSvc:  svc,
+		BinanceCfg: binance.Config{},
+		AIBaseURL:  "",
+	})
+	return app
 }

@@ -21,6 +21,7 @@ type Config struct {
 	Auth    AuthConfig    `mapstructure:"auth"`
 	Mode    string        `mapstructure:"mode"`
 	Env     string        `mapstructure:"env"`
+	Symbols []string      `mapstructure:"symbols"`
 }
 
 type AIConfig struct {
@@ -104,6 +105,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ai.base_url", "http://localhost:8001")
 	v.SetDefault("auth.jwt_secret", "dev-secret-change-me")
 	v.SetDefault("auth.jwt_ttl_sec", 86400)
+	v.SetDefault("symbols", []string{"BTCUSDT"})
 	v.SetDefault("db.max_conns", 10)
 	v.SetDefault("db.min_conns", 1)
 	v.SetDefault("db.conn_max_lifetime_sec", 1800)

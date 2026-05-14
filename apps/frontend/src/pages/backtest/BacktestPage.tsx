@@ -31,6 +31,7 @@ export default function BacktestPage() {
 
   const runM = useMutation({
     mutationFn: (input: RunBacktestInput) => runBacktest(input),
+    onMutate: () => setResult(null),
     onSuccess: (res) => setResult(res),
   });
 

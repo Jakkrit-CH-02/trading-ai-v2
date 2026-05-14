@@ -137,6 +137,13 @@ func (c *Client) runKlineConn(ctx context.Context, endpoint string, sym domain.S
 			if err != nil {
 				continue
 			}
+			opts.Logger.InfoContext(ctx, "binance emitted closed kline",
+				"service", "binance",
+				"symbol", string(sym),
+				"interval", interval,
+				"close_time", bar.CloseTime,
+				"close", bar.Close.String(),
+			)
 			select {
 			case <-ctx.Done():
 				readErr <- ctx.Err()

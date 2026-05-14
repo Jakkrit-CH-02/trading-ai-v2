@@ -119,6 +119,25 @@ func NewPipeline(
 	}
 }
 
+// Warm primes the market sink and strategy state from historical bars
+// without sending signals into risk/order execution. This gives stateful
+// strategies enough context to produce actionable signals immediately once
+// live bars start arriving.
+func (p *Pipeline) Warm(ctx context.Context, bars []domain.Bar) error {
+	for _, b := range bars {
+		if p.sink != nil {
+			p.sink.OnBar(b)
+		}
+		sig, err := p.strategy.OnBar(ctx, b)
+		if err != nil {
+			p.recordErr(err)
+			return fmt.Errorf("pipeline warm: strategy: %w", err)
+		}
+		p.recordSignal(sig)
+	}
+	return nil
+}
+
 // LastSignal returns the most recent signal seen by the pipeline (for
 // status reporting). Zero-value if no bar processed yet.
 func (p *Pipeline) LastSignal() domain.Signal {

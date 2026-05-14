@@ -11,7 +11,12 @@ export const BotSignalSchema = z.object({
   id: z.string().default(""),
   action: z.string().default(""),
   symbol: z.string().default(""),
+  strength: z.union([z.string(), z.number()]).transform(String).optional(),
+  reason: z.string().optional(),
+  strategy: z.string().optional(),
+  created_ms: z.number().int().optional(),
 });
+export type BotSignal = z.infer<typeof BotSignalSchema>;
 
 export const BotStatusSchema = z.object({
   state: BotStateSchema,

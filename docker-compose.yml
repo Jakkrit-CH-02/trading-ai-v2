@@ -1,30 +1,126 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: tradingbot
-      POSTGRES_USER: bot
-      POSTGRES_PASSWORD: bot
-    ports: ["5432:5432"]
-    volumes: [pgdata:/var/lib/postgresql/data]
+      POSTGRES_DB: trading
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./apps/backend/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["/bin/api", "-config", "config/config.dev.yaml"]
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      BOT_ENV: dev
+      BOT_SERVER_HOST: 0.0.0.0
+      BOT_SERVER_PORT: "8080"
+      BOT_DB_DSN: postgres://postgres:postgres@postgres:5432/trading?sslmode=disable
+      BOT_REDIS_ADDR: redis:6379
+      BOT_AI_BASE_URL: http://ai-service:8001
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  bot:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["/bin/bot", "-config", "config/config.dev.yaml"]
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      BOT_ENV: dev
+      BOT_DB_DSN: postgres://postgres:postgres@postgres:5432/trading?sslmode=disable
+      BOT_REDIS_ADDR: redis:6379
+      BOT_AI_BASE_URL: http://ai-service:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   ai-service:
     build:
       context: ./apps/ai-service
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
       AI_ENV: dev
       AI_LOG_LEVEL: INFO
       AI_HOST: 0.0.0.0
       AI_PORT: "8001"
-      AI_BACKEND_BASE_URL: http://backend:8000
-    ports: ["8001:8001"]
+      AI_BACKEND_BASE_URL: http://backend:8080
+    ports:
+      - "8001:8001"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz', timeout=2).read()\"",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   pgdata:
+  redisdata:

@@ -18,6 +18,8 @@ import {
   resetPaperPortfolio,
   type PaperPortfolio,
 } from "../../api/paper";
+import { getBotStatus } from "../../api/bot";
+import SignalCard from "./SignalCard";
 import PaperPortfolioSummary from "./PaperPortfolioSummary";
 import PaperPositionTable from "./PaperPositionTable";
 import PaperTradeHistory from "./PaperTradeHistory";
@@ -105,10 +107,66 @@ function PerformanceCard({ portfolio }: { portfolio: PaperPortfolio }) {
   );
 }
 
+function BotRunningBanner({ symbol, lastSignal }: { symbol: string; lastSignal?: { action?: string; id?: string } }) {
+  return (
+    <Card>
+      <CardContent
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 2,
+          flexWrap: "wrap",
+          py: "12px !important",
+        }}
+      >
+        <Box
+          sx={{
+            width: 12,
+            height: 12,
+            borderRadius: "50%",
+            bgcolor: "success.main",
+            flexShrink: 0,
+            "@keyframes pulse": {
+              "0%, 100%": { opacity: 1, transform: "scale(1)" },
+              "50%": { opacity: 0.4, transform: "scale(1.4)" },
+            },
+            animation: "pulse 1.8s ease-in-out infinite",
+          }}
+        />
+        <Typography sx={{ fontWeight: 600, color: "success.main" }}>
+          Bot running
+        </Typography>
+        <Typography sx={{ color: "text.secondary" }}>·</Typography>
+        <Typography sx={{ color: "text.secondary" }}>
+          Watching <strong>{symbol}</strong> — waiting for a signal
+        </Typography>
+        {lastSignal?.action && lastSignal.action !== "" ? (
+          <>
+            <Typography sx={{ color: "text.secondary" }}>·</Typography>
+            <Chip
+              label={`Last: ${lastSignal.action.toUpperCase()}`}
+              size="small"
+              color="info"
+              variant="outlined"
+            />
+          </>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function PaperTradingPage() {
   const qc = useQueryClient();
   const [resetOpen, setResetOpen] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  const botStatusQ = useQuery({
+    queryKey: ["bot", "status"],
+    queryFn: getBotStatus,
+    refetchInterval: POLL_MS,
+    refetchIntervalInBackground: true,
+  });
 
   const portfolioQ = useQuery({
     queryKey: ["paper", "portfolio"],
@@ -169,6 +227,17 @@ export default function PaperTradingPage() {
       </Box>
 
       {errMsg ? <Alert severity="error">{errMsg}</Alert> : null}
+
+      {botStatusQ.data?.state === "running" && botStatusQ.data.mode === "paper" ? (
+        <BotRunningBanner
+          symbol={botStatusQ.data.symbol}
+          lastSignal={botStatusQ.data.last_signal}
+        />
+      ) : null}
+
+      {botStatusQ.data ? (
+        <SignalCard signal={{ id: "", action: "", symbol: botStatusQ.data.symbol, ...botStatusQ.data.last_signal }} />
+      ) : null}
 
       {portfolioQ.isLoading || !portfolio ? (
         <Card>

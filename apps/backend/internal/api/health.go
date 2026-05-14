@@ -1,10 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 type depStatus string
@@ -24,8 +29,8 @@ type healthBody struct {
 	Deps   healthDeps `json:"deps"`
 }
 
-func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	pingCtx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
+func (s *Server) handleHealthz(c *fiber.Ctx) error {
+	pingCtx, cancel := context.WithTimeout(c.UserContext(), 1*time.Second)
 	defer cancel()
 
 	body := healthBody{
@@ -38,7 +43,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	if body.Deps.Postgres == depDown || body.Deps.Redis == depDown {
 		body.Status = "degraded"
 	}
-	WriteJSON(w, http.StatusOK, body)
+	return OK(c, body)
 }
 
 func pingStatus(ctx context.Context, p Pinger) depStatus {
@@ -51,13 +56,12 @@ func pingStatus(ctx context.Context, p Pinger) depStatus {
 	return depUp
 }
 
-func (s *Server) handleAIHealthz(w http.ResponseWriter, r *http.Request) {
-	body, err := s.ai.fetchHealth(r.Context())
+func (s *Server) handleAIHealthz(c *fiber.Ctx) error {
+	body, err := s.ai.fetchHealth(c.UserContext())
 	if err != nil {
-		WriteError(w, http.StatusBadGateway, "upstream_unavailable", err.Error())
-		return
+		return Err(c, fiber.StatusBadGateway, "upstream_unavailable", err.Error())
 	}
-	WriteJSON(w, http.StatusOK, body)
+	return OK(c, body)
 }
 
 type aiClient struct {
@@ -72,23 +76,22 @@ func newAIClient(baseURL string) *aiClient {
 	}
 }
 
-func (c *aiClient) fetchHealth(ctx context.Context) (json.RawMessage, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/healthz", nil)
+func (cl *aiClient) fetchHealth(ctx context.Context) (json.RawMessage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cl.baseURL+"/healthz", nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := cl.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	var raw json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, err
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("ai health: read body: %w", err)
 	}
-	// AI service returns the envelope itself; unwrap to the inner data so the
-	// backend handler can re-wrap consistently.
+	// Unwrap envelope if present so the backend re-wraps consistently.
 	var env struct {
 		Data  json.RawMessage `json:"data"`
 		Error *APIError       `json:"error"`
@@ -96,5 +99,5 @@ func (c *aiClient) fetchHealth(ctx context.Context) (json.RawMessage, error) {
 	if jerr := json.Unmarshal(raw, &env); jerr == nil && env.Data != nil {
 		return env.Data, nil
 	}
-	return raw, nil
+	return bytes.TrimSpace(raw), nil
 }

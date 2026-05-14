@@ -2,21 +2,26 @@ package backtest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/gofiber/fiber/v2"
 	"github.com/shopspring/decimal"
 
-	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/api"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/binance"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/data"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/domain"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/risk"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/strategy"
+)
+
+const (
+	defaultBacktestLimit = 1000
+	maxKlinesPageLimit   = 1000
+	maxAutoRangeBars     = 10000
 )
 
 // BarSource is the read-side dependency the handler uses to fetch history.
@@ -25,10 +30,16 @@ type BarSource interface {
 	GetBars(ctx context.Context, sym domain.Symbol, interval string, limit int) ([]domain.Bar, error)
 }
 
-// Handler wires backtest endpoints onto a chi router.
+// KlineFetcher pulls historical klines from a remote source such as Binance.
+type KlineFetcher interface {
+	GetKlines(ctx context.Context, q binance.KlinesQuery) ([]domain.Bar, error)
+}
+
+// Handler wires backtest endpoints onto a Fiber router.
 type Handler struct {
 	store    Store
 	bars     BarSource
+	remote   KlineFetcher
 	registry *strategy.Registry
 	risk     *risk.Engine
 }
@@ -37,13 +48,9 @@ func NewHandler(store Store, bars BarSource, reg *strategy.Registry, r *risk.Eng
 	return &Handler{store: store, bars: bars, registry: reg, risk: r}
 }
 
-// Mount registers /api/backtest/* on r.
-func (h *Handler) Mount(r chi.Router) {
-	r.Route("/api/backtest", func(r chi.Router) {
-		r.Post("/run", h.handleRun)
-		r.Get("/", h.handleList)
-		r.Get("/{id}", h.handleGet)
-	})
+func (h *Handler) WithRemoteFetcher(f KlineFetcher) *Handler {
+	h.remote = f
+	return h
 }
 
 // RunRequest is the wire DTO for POST /api/backtest/run.
@@ -60,24 +67,20 @@ type RunRequest struct {
 	Limit            int               `json:"limit"`
 }
 
-func (h *Handler) handleRun(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) run(c *fiber.Ctx) error {
 	var req RunRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.WriteError(w, http.StatusBadRequest, "validation_failed", "invalid json body")
-		return
+	if err := c.BodyParser(&req); err != nil {
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", "invalid json body")
 	}
 	cfg, err := req.toConfig()
 	if err != nil {
-		api.WriteError(w, http.StatusBadRequest, "validation_failed", err.Error())
-		return
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", err.Error())
 	}
 	if h.bars == nil {
-		api.WriteError(w, http.StatusServiceUnavailable, "internal", "bar source not configured")
-		return
+		return errResp(c, fiber.StatusServiceUnavailable, "internal", "bar source not configured")
 	}
 	if h.registry == nil {
-		api.WriteError(w, http.StatusServiceUnavailable, "internal", "strategy registry not configured")
-		return
+		return errResp(c, fiber.StatusServiceUnavailable, "internal", "strategy registry not configured")
 	}
 	strat, err := h.registry.Build(strategy.RuleConfig{
 		Name:    cfg.StrategyName,
@@ -86,93 +89,244 @@ func (h *Handler) handleRun(w http.ResponseWriter, r *http.Request) {
 		Params:  cfg.StrategyParams,
 	})
 	if err != nil {
-		api.WriteError(w, http.StatusBadRequest, "validation_failed", err.Error())
-		return
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", err.Error())
 	}
 
-	limit := req.Limit
-	if limit <= 0 {
-		limit = 1000
-	}
-	bars, err := h.bars.GetBars(r.Context(), cfg.Symbol, cfg.Interval, limit)
+	limit := resolveBacktestLimit(cfg, req.Limit)
+	bars, err := h.loadBars(c.UserContext(), cfg, limit)
 	if err != nil {
-		api.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
-		return
+		return errResp(c, fiber.StatusInternalServerError, "internal", err.Error())
 	}
 	if len(bars) == 0 {
-		api.WriteError(w, http.StatusNotFound, "not_found", "no bars available for symbol/interval")
-		return
+		return errResp(c, fiber.StatusNotFound, "not_found", "no bars available for symbol/interval")
 	}
 
-	res, err := NewEngine(cfg, strat, h.risk).Run(r.Context(), bars)
+	res, err := NewEngine(cfg, strat, h.risk).Run(c.UserContext(), bars)
 	if err != nil {
-		api.WriteError(w, http.StatusBadRequest, "validation_failed", err.Error())
-		return
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", err.Error())
 	}
 	if h.store != nil {
-		if err := h.store.Insert(r.Context(), res); err != nil {
-			api.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
-			return
+		if err := h.store.Insert(c.UserContext(), res); err != nil {
+			return errResp(c, fiber.StatusInternalServerError, "internal", err.Error())
 		}
 	}
-	api.WriteJSON(w, http.StatusOK, res)
+	return c.JSON(okEnv(res))
 }
 
-func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) loadBars(ctx context.Context, cfg Config, limit int) ([]domain.Bar, error) {
+	if (cfg.FromMs > 0 || cfg.ToMs > 0) && h.remote != nil {
+		bars, err := h.fetchRemoteBars(ctx, cfg, limit)
+		if err != nil {
+			return nil, err
+		}
+		if len(bars) > 0 {
+			return bars, nil
+		}
+	}
+
+	bars, err := h.bars.GetBars(ctx, cfg.Symbol, cfg.Interval, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(bars) > 0 {
+		return bars, nil
+	}
+	if h.remote == nil {
+		return nil, nil
+	}
+	return h.fetchRemoteBars(ctx, cfg, limit)
+}
+
+func (h *Handler) fetchRemoteBars(ctx context.Context, cfg Config, limit int) ([]domain.Bar, error) {
+	q := buildKlinesQuery(cfg, limit)
+	bars, err := h.getRemoteKlines(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	if len(bars) == 0 {
+		return nil, nil
+	}
+	if repo, ok := h.bars.(data.Repo); ok {
+		_ = repo.InsertBars(ctx, bars)
+	}
+	return bars, nil
+}
+
+func (h *Handler) getRemoteKlines(ctx context.Context, q binance.KlinesQuery) ([]domain.Bar, error) {
+	if q.Limit <= 0 {
+		q.Limit = defaultBacktestLimit
+	}
+	if q.Limit <= maxKlinesPageLimit && (q.StartMs <= 0 || q.EndMs <= 0) {
+		return h.remote.GetKlines(ctx, q)
+	}
+
+	pageLimit := q.Limit
+	if pageLimit > maxKlinesPageLimit {
+		pageLimit = maxKlinesPageLimit
+	}
+	out := make([]domain.Bar, 0, q.Limit)
+	nextStart := q.StartMs
+
+	for len(out) < q.Limit {
+		remaining := q.Limit - len(out)
+		reqLimit := pageLimit
+		if remaining < reqLimit {
+			reqLimit = remaining
+		}
+		page, err := h.remote.GetKlines(ctx, binance.KlinesQuery{
+			Symbol:   q.Symbol,
+			Interval: q.Interval,
+			StartMs:  nextStart,
+			EndMs:    q.EndMs,
+			Limit:    reqLimit,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			break
+		}
+		out = append(out, page...)
+		if len(page) < reqLimit {
+			break
+		}
+
+		last := page[len(page)-1]
+		nextStart = last.CloseTime + 1
+		if q.EndMs > 0 && nextStart >= q.EndMs {
+			break
+		}
+		if len(page) == 1 && page[0].CloseTime < nextStart {
+			break
+		}
+	}
+
+	return out, nil
+}
+
+func buildKlinesQuery(cfg Config, limit int) binance.KlinesQuery {
+	startMs := cfg.FromMs
+	endMs := cfg.ToMs
+	if startMs > 0 && endMs > 0 && startMs >= endMs {
+		if stepMs, ok := intervalStepMs(cfg.Interval); ok && limit > 1 {
+			startMs = endMs - int64(limit-1)*stepMs
+			if startMs < 0 {
+				startMs = 0
+			}
+		} else {
+			startMs = 0
+		}
+	}
+	return binance.KlinesQuery{
+		Symbol:   string(cfg.Symbol),
+		Interval: cfg.Interval,
+		StartMs:  startMs,
+		EndMs:    endMs,
+		Limit:    limit,
+	}
+}
+
+func resolveBacktestLimit(cfg Config, requested int) int {
+	if requested > 0 {
+		return requested
+	}
+	stepMs, ok := intervalStepMs(cfg.Interval)
+	if !ok || stepMs <= 0 {
+		return defaultBacktestLimit
+	}
+	var spanMs int64
+	switch {
+	case cfg.FromMs > 0 && cfg.ToMs > cfg.FromMs:
+		spanMs = cfg.ToMs - cfg.FromMs
+	case cfg.FromMs > 0:
+		spanMs = time.Now().UTC().UnixMilli() - cfg.FromMs
+	case cfg.ToMs > 0:
+		spanMs = cfg.ToMs
+	default:
+		return defaultBacktestLimit
+	}
+	if spanMs <= 0 {
+		return defaultBacktestLimit
+	}
+	bars := int(spanMs/stepMs) + 1
+	if bars < 1 {
+		return defaultBacktestLimit
+	}
+	if bars > maxAutoRangeBars {
+		return maxAutoRangeBars
+	}
+	return bars
+}
+
+func intervalStepMs(interval string) (int64, bool) {
+	if len(interval) < 2 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(interval[:len(interval)-1])
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	var unit time.Duration
+	switch interval[len(interval)-1] {
+	case 'm':
+		unit = time.Minute
+	case 'h':
+		unit = time.Hour
+	case 'd':
+		unit = 24 * time.Hour
+	default:
+		return 0, false
+	}
+	return int64(time.Duration(n) * unit / time.Millisecond), true
+}
+
+func (h *Handler) list(c *fiber.Ctx) error {
 	if h.store == nil {
-		api.WriteError(w, http.StatusServiceUnavailable, "internal", "store not configured")
-		return
+		return errResp(c, fiber.StatusServiceUnavailable, "internal", "store not configured")
 	}
 	limit, offset := 100, 0
-	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
+	if v := strings.TrimSpace(c.Query("limit")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
-			api.WriteError(w, http.StatusBadRequest, "validation_failed", "limit must be a positive integer")
-			return
+			return errResp(c, fiber.StatusBadRequest, "validation_failed", "limit must be a positive integer")
 		}
 		limit = n
 	}
-	if v := strings.TrimSpace(r.URL.Query().Get("offset")); v != "" {
+	if v := strings.TrimSpace(c.Query("offset")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
-			api.WriteError(w, http.StatusBadRequest, "validation_failed", "offset must be non-negative")
-			return
+			return errResp(c, fiber.StatusBadRequest, "validation_failed", "offset must be non-negative")
 		}
 		offset = n
 	}
-	results, total, err := h.store.List(r.Context(), limit, offset)
+	results, total, err := h.store.List(c.UserContext(), limit, offset)
 	if err != nil {
-		api.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
-		return
+		return errResp(c, fiber.StatusInternalServerError, "internal", err.Error())
 	}
-	api.WriteJSON(w, http.StatusOK, struct {
+	return c.JSON(okEnv(struct {
 		Results []Result `json:"results"`
 		Total   int      `json:"total"`
 		Limit   int      `json:"limit"`
 		Offset  int      `json:"offset"`
-	}{Results: results, Total: total, Limit: limit, Offset: offset})
+	}{Results: results, Total: total, Limit: limit, Offset: offset}))
 }
 
-func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) get(c *fiber.Ctx) error {
 	if h.store == nil {
-		api.WriteError(w, http.StatusServiceUnavailable, "internal", "store not configured")
-		return
+		return errResp(c, fiber.StatusServiceUnavailable, "internal", "store not configured")
 	}
-	id := chi.URLParam(r, "id")
+	id := c.Params("id")
 	if id == "" {
-		api.WriteError(w, http.StatusBadRequest, "validation_failed", "id required")
-		return
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", "id required")
 	}
-	res, err := h.store.Get(r.Context(), id)
+	res, err := h.store.Get(c.UserContext(), id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			api.WriteError(w, http.StatusNotFound, "not_found", "backtest not found")
-			return
+			return errResp(c, fiber.StatusNotFound, "not_found", "backtest not found")
 		}
-		api.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
-		return
+		return errResp(c, fiber.StatusInternalServerError, "internal", err.Error())
 	}
-	api.WriteJSON(w, http.StatusOK, res)
+	return c.JSON(okEnv(res))
 }
 
 func (req RunRequest) toConfig() (Config, error) {
@@ -221,6 +375,17 @@ func parseDec(s string, def decimal.Decimal) (decimal.Decimal, error) {
 		return def, nil
 	}
 	return decimal.NewFromString(s)
+}
+
+func okEnv(data interface{}) fiber.Map {
+	return fiber.Map{"data": data, "error": nil}
+}
+
+func errResp(c *fiber.Ctx, status int, code, msg string) error {
+	return c.Status(status).JSON(fiber.Map{
+		"data":  nil,
+		"error": fiber.Map{"code": code, "message": msg},
+	})
 }
 
 // Compile-time check: data.Repo satisfies BarSource.

@@ -3,18 +3,33 @@ package api
 import (
 	"context"
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/gofiber/fiber/v2"
+	fibercors "github.com/gofiber/fiber/v2/middleware/cors"
+	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
+	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
+	fiberrequestid "github.com/gofiber/fiber/v2/middleware/requestid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
+	"github.com/shopspring/decimal"
 
+	aipkg "github.com/jakkrit-ch/trading-ai-v2/backend/internal/ai"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/alert"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/api/handlers"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/auth"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/backtest"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/binance"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/data"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/data/market"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/domain"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/platform/config"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/risk"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/runtime"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/settings"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/strategy"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/strategy/builtin"
 )
 
 // Pinger probes a backing dependency. Implementations must honor ctx and return
@@ -24,20 +39,16 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
-// Server wires the chi router together with its dependencies.
+// Server wires the Fiber app together with its dependencies.
 type Server struct {
-	cfg     config.Config
-	router  *chi.Mux
-	pg      Pinger
-	rdb     Pinger
-	ai      *aiClient
-	aiH     *handlers.AI
-	authSvc *auth.Service
-	authH   *auth.Handler
-	settSvc *settings.Service
-	settH   *settings.Handler
+	cfg      config.Config
+	app      *fiber.App
+	pg       Pinger
+	rdb      Pinger
+	ai       *aiClient
+	authSvc  *auth.Service
+	settSvc  *settings.Service
 	alertSvc *alert.Service
-	alertH   *alert.Handler
 }
 
 // Options is the optional dependency bundle for New.
@@ -47,10 +58,10 @@ type Options struct {
 	Alerts   *alert.Service
 }
 
-// New constructs the HTTP server with all middleware and routes mounted.
+// New constructs the Fiber HTTP server with all middleware and routes mounted.
 // pg and rdb may be nil if the dependency failed to initialize at startup;
 // /healthz will report them as down rather than ping.
-func New(cfg config.Config, pg, rdb Pinger, opts ...Options) *Server {
+func New(cfg config.Config, pg *pgxpool.Pool, rdb *goredis.Client, opts ...Options) *Server {
 	var o Options
 	if len(opts) > 0 {
 		o = opts[0]
@@ -72,27 +83,78 @@ func New(cfg config.Config, pg, rdb Pinger, opts ...Options) *Server {
 	if o.Alerts == nil {
 		o.Alerts = alert.NewService(alert.NewMemoryRepo(), alert.StdoutNotifier{})
 	}
-	s := &Server{
-		cfg:     cfg,
-		router:  chi.NewRouter(),
-		pg:      pg,
-		rdb:     rdb,
-		ai:      newAIClient(cfg.AI.BaseURL),
-		aiH:     handlers.NewAI(cfg.AI.BaseURL),
-		authSvc: o.Auth,
-		authH:   auth.NewHandler(o.Auth, envelopeWriter{}),
-		settSvc: o.Settings,
-		settH:   settings.NewHandler(o.Settings, envelopeWriter{}),
-		alertSvc: o.Alerts,
-		alertH:   alert.NewHandler(o.Alerts, envelopeWriter{}),
+
+	mgr := runtime.NewManager(binance.Config{
+		APIKey:      cfg.Binance.APIKey,
+		APISecret:   cfg.Binance.APISecret,
+		Testnet:     cfg.Binance.Testnet,
+		RestBaseURL: cfg.Binance.BaseURL,
+		WSBaseURL:   cfg.Binance.WSURL,
+	})
+	syms := make([]domain.Symbol, 0, len(cfg.Symbols))
+	for _, s := range cfg.Symbols {
+		syms = append(syms, domain.Symbol(s))
 	}
+	var pgPinger Pinger
+	if pg != nil {
+		pgPinger = pg
+	}
+	var rdbPinger Pinger
+	if rdb != nil {
+		rdbPinger = redisPinger{c: rdb}
+	}
+
+	var repo data.Repo
+	if pg != nil {
+		repo = data.NewPostgresRepo(pg)
+	}
+	var cache data.Cache
+	if rdb != nil {
+		cache = data.NewRedisCache(rdb, time.Minute)
+	}
+	marketSvc := market.NewService(cache, repo, syms)
+
+	app := fiber.New(fiber.Config{
+		DisableStartupMessage: true,
+		ErrorHandler: func(c *fiber.Ctx, err error) error {
+			slog.Error("unhandled fiber error", "service", "api", "err", err)
+			return Err(c, fiber.StatusInternalServerError, "internal", "unexpected error")
+		},
+	})
+
+	s := &Server{
+		cfg:      cfg,
+		app:      app,
+		pg:       pgPinger,
+		rdb:      rdbPinger,
+		ai:       newAIClient(cfg.AI.BaseURL),
+		authSvc:  o.Auth,
+		settSvc:  o.Settings,
+		alertSvc: o.Alerts,
+	}
+
 	s.mountMiddleware()
-	s.mountRoutes()
+	s.mountRoutes(mgr, marketSvc, repo, pg, o)
 	return s
 }
 
-// Handler returns the underlying http.Handler.
-func (s *Server) Handler() http.Handler { return s.router }
+type redisPinger struct{ c *goredis.Client }
+
+func (p redisPinger) Ping(ctx context.Context) error {
+	return p.c.Ping(ctx).Err()
+}
+
+// App returns the underlying *fiber.App, useful for testing with app.Test(req).
+func (s *Server) App() *fiber.App { return s.app }
+
+// Listen starts the Fiber server on the configured address (blocking).
+func (s *Server) Listen() error {
+	slog.Info("api listening", "service", "api", "addr", s.Addr())
+	return s.app.Listen(s.Addr())
+}
+
+// Shutdown gracefully shuts down the server.
+func (s *Server) Shutdown() error { return s.app.Shutdown() }
 
 // AuthService returns the configured auth service for external wiring/tests.
 func (s *Server) AuthService() *auth.Service { return s.authSvc }
@@ -111,123 +173,110 @@ func (s *Server) Addr() string {
 }
 
 func (s *Server) mountMiddleware() {
-	s.router.Use(chimw.Recoverer)
-	s.router.Use(chimw.RequestID)
-	s.router.Use(slogMiddleware)
-	s.router.Use(corsMiddleware)
-	s.router.Use(auth.Middleware(s.authSvc, isPublicPath, writeEnvelopeError))
+	s.app.Use(fiberrecover.New())
+	s.app.Use(fiberrequestid.New())
+	s.app.Use(fiberlogger.New(fiberlogger.Config{
+		Format: "${time} ${status} ${method} ${path} request_id=${locals:requestid} dur=${latency}\n",
+	}))
+	s.app.Use(fibercors.New(fibercors.Config{
+		AllowOrigins: "*",
+		AllowMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+		AllowHeaders: "Authorization,Content-Type",
+	}))
+	s.app.Use(auth.Middleware(s.authSvc, isPublicPath))
 }
 
-func (s *Server) mountRoutes() {
-	s.router.Get("/healthz", s.handleHealthz)
-	s.router.Get("/api/ai/healthz", s.handleAIHealthz)
+func (s *Server) mountRoutes(
+	mgr *runtime.Manager,
+	marketSvc *market.Service,
+	repo data.Repo,
+	pg *pgxpool.Pool,
+	o Options,
+) {
+	// Health
+	s.app.Get("/healthz", s.handleHealthz)
+	s.app.Get("/api/ai/healthz", s.handleAIHealthz)
 
-	// Auth routes. login/register are public (see isPublicPath); me/logout
-	// pass through the global JWT middleware.
-	s.router.Post("/api/auth/register", s.authH.Register)
-	s.router.Post("/api/auth/login", s.authH.Login)
-	s.router.Post("/api/auth/logout", s.authH.Logout)
-	s.router.Get("/api/auth/me", s.authH.Me)
+	// Auth, Settings, Alerts — each package owns its router.go
+	auth.RegisterRoutes(s.app, auth.NewHandler(o.Auth))
+	settings.RegisterRoutes(s.app, settings.NewHandler(o.Settings))
+	alert.RegisterRoutes(s.app, alert.NewHandler(o.Alerts))
 
-	// Admin-only sample endpoint exercised by tests: create user as admin.
-	adminMW := auth.RequireRole(writeEnvelopeError, auth.RoleAdmin)
-	s.router.Group(func(r chi.Router) {
-		r.Use(adminMW)
-		r.Post("/api/admin/users", s.authH.Register)
+	// Bot / Paper / Dashboard / Risk / Trades / BinanceKey / AI / Market
+	handlers.RegisterRoutes(s.app, handlers.Deps{
+		Manager:   mgr,
+		MarketSvc: marketSvc,
+		BinanceCfg: binance.Config{
+			APIKey:      s.cfg.Binance.APIKey,
+			APISecret:   s.cfg.Binance.APISecret,
+			Testnet:     s.cfg.Binance.Testnet,
+			RestBaseURL: s.cfg.Binance.BaseURL,
+			WSBaseURL:   s.cfg.Binance.WSURL,
+		},
+		AIBaseURL: s.cfg.AI.BaseURL,
 	})
 
-	// Settings: any authenticated role can read; service enforces fine-grained
-	// access (admin can read/write any user; operator only self; viewer
-	// read-only on self).
-	s.router.Get("/api/settings", s.settH.Get)
-	s.router.Put("/api/settings", s.settH.Put)
+	registry := strategy.NewRegistry()
+	registry.Register(builtin.MACrossName, builtin.MACrossFactory)
+	registry.Register(builtin.RSIName, builtin.RSIFactory)
+	registry.Register(builtin.AIName, func(cfg strategy.RuleConfig) (strategy.Strategy, error) {
+		client := aipkg.New(aipkg.Config{BaseURL: s.cfg.AI.BaseURL})
+		interval := cfg.Params["interval"]
+		if interval == "" {
+			interval = "1m"
+		}
+		minConfidence := decimal.NewFromFloat(0.5)
+		if raw := strings.TrimSpace(cfg.Params["min_confidence"]); raw != "" {
+			parsed, err := decimal.NewFromString(raw)
+			if err != nil {
+				return nil, err
+			}
+			minConfidence = parsed
+		}
+		return builtin.NewAI(client, interval, minConfidence), nil
+	})
 
-	s.router.Get("/api/alerts", s.alertH.List)
-	s.router.Post("/api/alerts/{id}/ack", s.alertH.Ack)
+	backtestStore := backtest.Store(backtest.NewMemoryStore())
+	if pg != nil {
+		backtestStore = backtest.NewPostgresStore(pg)
+	}
 
-	s.router.Post("/api/ai/datasets/build", s.aiH.BuildDataset)
-	s.router.Post("/api/ai/features/compute", s.aiH.ComputeFeatures)
-	s.router.Post("/api/ai/training/run", s.aiH.RunTraining)
-	s.router.Get("/api/ai/training/{id}", s.aiH.GetTrainingJob)
-	s.router.Get("/api/ai/models", s.aiH.ListModels)
-	s.router.Post("/api/ai/models/{id}/promote", s.aiH.PromoteModel)
-	s.router.Post("/api/ai/predict", s.aiH.Predict)
-	s.router.Post("/api/ai/predict/reload", s.aiH.ReloadModel)
+	rsk := risk.NewEngine(risk.Policy{
+		MaxPositionPct:      s.cfg.Risk.MaxPositionPct,
+		MaxDailyDrawdownPct: s.cfg.Risk.MaxDailyDrawdownPct,
+		MaxSlippageBps:      s.cfg.Risk.MaxSlippageBps,
+		RequireStopLoss:     s.cfg.Risk.RequireStopLoss,
+	})
 
-	s.router.Get("/debug/error", func(w http.ResponseWriter, _ *http.Request) {
-		WriteErrorWithDetails(w, http.StatusTeapot, "debug_forced_error",
+	backtestClient := binance.New(binance.Config{
+		APIKey:      s.cfg.Binance.APIKey,
+		APISecret:   s.cfg.Binance.APISecret,
+		Testnet:     s.cfg.Binance.Testnet,
+		RestBaseURL: s.cfg.Binance.BaseURL,
+		WSBaseURL:   s.cfg.Binance.WSURL,
+	})
+	backtest.RegisterRoutes(s.app, backtest.NewHandler(backtestStore, repo, registry, rsk).WithRemoteFetcher(backtestClient))
+
+	// Debug
+	s.app.Get("/debug/error", func(c *fiber.Ctx) error {
+		return ErrDetails(c, fiber.StatusTeapot, "debug_forced_error",
 			"forced error for envelope verification",
 			map[string]interface{}{"reason": "debug endpoint"})
 	})
 }
 
 // isPublicPath identifies routes that bypass JWT auth.
-func isPublicPath(r *http.Request) bool {
-	switch r.URL.Path {
+func isPublicPath(c *fiber.Ctx) bool {
+	p := c.Path()
+	switch p {
 	case "/healthz",
 		"/api/ai/healthz",
 		"/api/auth/login",
 		"/api/auth/register":
 		return true
 	}
-	return strings.HasPrefix(r.URL.Path, "/healthz")
+	return strings.HasPrefix(p, "/healthz")
 }
-
-// envelopeWriter adapts package-level Write helpers to the auth.Writer interface.
-type envelopeWriter struct{}
-
-func (envelopeWriter) WriteJSON(w http.ResponseWriter, status int, data interface{}) {
-	WriteJSON(w, status, data)
-}
-
-func (envelopeWriter) WriteError(w http.ResponseWriter, status int, code, msg string) {
-	WriteError(w, status, code, msg)
-}
-
-func writeEnvelopeError(w http.ResponseWriter, status int, code, msg string) {
-	WriteError(w, status, code, msg)
-}
-
-// slogMiddleware logs every request with structured fields including request_id.
-func slogMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		reqID := chimw.GetReqID(r.Context())
-		ctx := context.WithValue(r.Context(), ctxKeyRequestID{}, reqID)
-		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
-		next.ServeHTTP(ww, r.WithContext(ctx))
-		slog.InfoContext(ctx, "http request",
-			"service", "api",
-			"request_id", reqID,
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", ww.Status(),
-			"bytes", ww.BytesWritten(),
-			"dur_ms", time.Since(start).Milliseconds(),
-		)
-	})
-}
-
-// corsMiddleware sets permissive CORS headers for dev.
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			origin = "*"
-		}
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Vary", "Origin")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-type ctxKeyRequestID struct{}
 
 func itoa(n int) string {
 	if n == 0 {

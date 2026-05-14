@@ -42,14 +42,15 @@ func (s *Service) Candles(ctx context.Context, sym domain.Symbol, interval strin
 }
 
 // Snapshot returns the latest bar — cache hit, postgres fallback.
-func (s *Service) Snapshot(ctx context.Context, sym domain.Symbol, interval string) (domain.Bar, error) {
+// The second return value is "cache" or "repo" indicating the data source.
+func (s *Service) Snapshot(ctx context.Context, sym domain.Symbol, interval string) (domain.Bar, string, error) {
 	if sym == "" || interval == "" {
-		return domain.Bar{}, fmt.Errorf("market: symbol and interval required")
+		return domain.Bar{}, "", fmt.Errorf("market: symbol and interval required")
 	}
 	if s.cache != nil {
 		bar, err := s.cache.GetLatestBar(ctx, sym, interval)
 		if err == nil {
-			return bar, nil
+			return bar, "cache", nil
 		}
 		if !errors.Is(err, data.ErrNotFound) {
 			// Cache failure should not block the read; fall through to repo.
@@ -57,7 +58,11 @@ func (s *Service) Snapshot(ctx context.Context, sym domain.Symbol, interval stri
 		}
 	}
 	if s.repo == nil {
-		return domain.Bar{}, data.ErrNotFound
+		return domain.Bar{}, "", data.ErrNotFound
 	}
-	return s.repo.GetLatestBar(ctx, sym, interval)
+	bar, err := s.repo.GetLatestBar(ctx, sym, interval)
+	if err != nil {
+		return domain.Bar{}, "", err
+	}
+	return bar, "repo", nil
 }

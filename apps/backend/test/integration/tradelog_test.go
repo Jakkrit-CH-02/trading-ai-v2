@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/gofiber/fiber/v2"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
@@ -169,14 +169,18 @@ func TestTradeLog_HTTPHandlers(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	r := chi.NewRouter()
-	tradelog.NewHandler(svc).Mount(r)
-	srv := httptest.NewServer(r)
-	defer srv.Close()
+	app := fiber.New()
+	tradelog.RegisterRoutes(app, tradelog.NewHandler(svc))
+
+	do := func(method, path string) *http.Response {
+		req := httptest.NewRequest(method, path, nil)
+		resp, err := app.Test(req, -1)
+		require.NoError(t, err)
+		return resp
+	}
 
 	t.Run("GET /api/trades", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/api/trades?limit=10")
-		require.NoError(t, err)
+		resp := do(http.MethodGet, "/api/trades?limit=10")
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		_, raw := decodeEnvelope(t, resp)
@@ -195,8 +199,7 @@ func TestTradeLog_HTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("GET /api/trades?symbol=BTCUSDT&side=buy", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/api/trades?symbol=BTCUSDT&side=buy")
-		require.NoError(t, err)
+		resp := do(http.MethodGet, "/api/trades?symbol=BTCUSDT&side=buy")
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		_, raw := decodeEnvelope(t, resp)
 		var data struct {
@@ -209,8 +212,7 @@ func TestTradeLog_HTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("GET /api/trades validation", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/api/trades?limit=-1")
-		require.NoError(t, err)
+		resp := do(http.MethodGet, "/api/trades?limit=-1")
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 		env, _ := decodeEnvelope(t, resp)
 		require.NotNil(t, env.Error)
@@ -218,8 +220,7 @@ func TestTradeLog_HTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("GET /api/trades/summary", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/api/trades/summary?period=all")
-		require.NoError(t, err)
+		resp := do(http.MethodGet, "/api/trades/summary?period=all")
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		_, raw := decodeEnvelope(t, resp)
@@ -232,8 +233,7 @@ func TestTradeLog_HTTPHandlers(t *testing.T) {
 	})
 
 	t.Run("GET /api/trades/summary bad period", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/api/trades/summary?period=bogus")
-		require.NoError(t, err)
+		resp := do(http.MethodGet, "/api/trades/summary?period=bogus")
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
 }

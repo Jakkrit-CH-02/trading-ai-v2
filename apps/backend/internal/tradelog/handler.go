@@ -1,12 +1,10 @@
 package tradelog
 
 import (
-	"net/http"
 	"strconv"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/gofiber/fiber/v2"
 
-	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/api"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/domain"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/platform/timex"
 )
@@ -21,14 +19,6 @@ type Handler struct{ svc *Service }
 
 func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 
-// Mount registers /api/trades and /api/trades/summary onto r.
-func (h *Handler) Mount(r chi.Router) {
-	r.Route("/api/trades", func(r chi.Router) {
-		r.Get("/", h.handleList)
-		r.Get("/summary", h.handleSummary)
-	})
-}
-
 // ListResponse is the wire DTO for GET /api/trades.
 type ListResponse struct {
 	Trades []Record `json:"trades"`
@@ -37,38 +27,34 @@ type ListResponse struct {
 	Offset int      `json:"offset"`
 }
 
-func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
+func (h *Handler) list(c *fiber.Ctx) error {
 	f := Filter{
-		Mode:     domain.Mode(q.Get("mode")),
-		Symbol:   domain.Symbol(q.Get("symbol")),
-		Side:     domain.Side(q.Get("side")),
-		Strategy: q.Get("strategy"),
+		Mode:     domain.Mode(c.Query("mode")),
+		Symbol:   domain.Symbol(c.Query("symbol")),
+		Side:     domain.Side(c.Query("side")),
+		Strategy: c.Query("strategy"),
 	}
 
-	if v := q.Get("from_ms"); v != "" {
+	if v := c.Query("from_ms"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n < 0 {
-			api.WriteError(w, http.StatusBadRequest, "validation_failed", "from_ms must be a non-negative integer")
-			return
+			return errResp(c, fiber.StatusBadRequest, "validation_failed", "from_ms must be a non-negative integer")
 		}
 		f.FromMs = n
 	}
-	if v := q.Get("to_ms"); v != "" {
+	if v := c.Query("to_ms"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n < 0 {
-			api.WriteError(w, http.StatusBadRequest, "validation_failed", "to_ms must be a non-negative integer")
-			return
+			return errResp(c, fiber.StatusBadRequest, "validation_failed", "to_ms must be a non-negative integer")
 		}
 		f.ToMs = n
 	}
 
 	limit := defaultListLimit
-	if v := q.Get("limit"); v != "" {
+	if v := c.Query("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
-			api.WriteError(w, http.StatusBadRequest, "validation_failed", "limit must be a positive integer")
-			return
+			return errResp(c, fiber.StatusBadRequest, "validation_failed", "limit must be a positive integer")
 		}
 		if n > maxListLimit {
 			n = maxListLimit
@@ -78,44 +64,51 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	f.Limit = limit
 
 	offset := 0
-	if v := q.Get("offset"); v != "" {
+	if v := c.Query("offset"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
-			api.WriteError(w, http.StatusBadRequest, "validation_failed", "offset must be a non-negative integer")
-			return
+			return errResp(c, fiber.StatusBadRequest, "validation_failed", "offset must be a non-negative integer")
 		}
 		offset = n
 	}
 	f.Offset = offset
 
-	records, total, err := h.svc.List(r.Context(), f)
+	records, total, err := h.svc.List(c.UserContext(), f)
 	if err != nil {
-		api.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
-		return
+		return errResp(c, fiber.StatusInternalServerError, "internal", err.Error())
 	}
-	api.WriteJSON(w, http.StatusOK, ListResponse{
+	return c.JSON(okEnv(ListResponse{
 		Trades: records,
 		Total:  total,
 		Limit:  limit,
 		Offset: offset,
-	})
+	}))
 }
 
-func (h *Handler) handleSummary(w http.ResponseWriter, r *http.Request) {
-	p := Period(r.URL.Query().Get("period"))
+func (h *Handler) summary(c *fiber.Ctx) error {
+	p := Period(c.Query("period"))
 	switch p {
 	case "":
 		p = PeriodDay
 	case PeriodDay, PeriodWeek, PeriodAll:
 	default:
-		api.WriteError(w, http.StatusBadRequest, "validation_failed", "period must be one of: day, week, all")
-		return
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", "period must be one of: day, week, all")
 	}
 
-	sum, err := h.svc.Summary(r.Context(), p, timex.NowMs())
+	sum, err := h.svc.Summary(c.UserContext(), p, timex.NowMs())
 	if err != nil {
-		api.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
-		return
+		return errResp(c, fiber.StatusInternalServerError, "internal", err.Error())
 	}
-	api.WriteJSON(w, http.StatusOK, sum)
+	return c.JSON(okEnv(sum))
+}
+
+func okEnv(data interface{}) fiber.Map {
+	return fiber.Map{"data": data, "error": nil}
+}
+
+func errResp(c *fiber.Ctx, status int, code, msg string) error {
+	return c.Status(status).JSON(fiber.Map{
+		"data":  nil,
+		"error": fiber.Map{"code": code, "message": msg},
+	})
 }

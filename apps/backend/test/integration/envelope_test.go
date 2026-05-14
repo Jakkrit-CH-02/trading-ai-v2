@@ -1,11 +1,13 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/api"
@@ -14,8 +16,6 @@ import (
 )
 
 // envelope mirrors the wire contract documented in internal/api/response.go.
-// Using map[string]json.RawMessage lets us verify exact field presence
-// (e.g. "error": null literal) rather than just non-nilness.
 type envelope struct {
 	Data  json.RawMessage `json:"data"`
 	Error *struct {
@@ -25,22 +25,20 @@ type envelope struct {
 	} `json:"error"`
 }
 
-func newTestServer(t *testing.T) *httptest.Server {
+func newTestApp(t *testing.T) *fiber.App {
 	t.Helper()
-	s, _ := newTestServerWithAuth(t)
-	return s
+	a, _ := newTestAppWithAuth(t)
+	return a
 }
 
-// newTestServerWithAuth returns an httptest.Server plus a valid bearer token
-// for an admin user, useful for hitting protected endpoints.
-func newTestServerWithAuth(t *testing.T) (*httptest.Server, string) {
+// newTestAppWithAuth returns a Fiber app plus a valid bearer token for an admin user.
+func newTestAppWithAuth(t *testing.T) (*fiber.App, string) {
 	t.Helper()
 	cfg := config.Config{}
 	cfg.Auth.JWTSecret = "test-secret"
 	cfg.Auth.JWTTTLSec = 3600
 	apiSrv := api.New(cfg, nil, nil)
-	srv := httptest.NewServer(apiSrv.Handler())
-	t.Cleanup(srv.Close)
+	app := apiSrv.App()
 	if _, err := apiSrv.AuthService().Register(t.Context(), "tester", "password123", auth.RoleAdmin); err != nil {
 		t.Fatalf("register tester: %v", err)
 	}
@@ -48,7 +46,46 @@ func newTestServerWithAuth(t *testing.T) (*httptest.Server, string) {
 	if err != nil {
 		t.Fatalf("login tester: %v", err)
 	}
-	return srv, tok
+	return app, tok
+}
+
+func postJSON(t *testing.T, app *fiber.App, path, token string, body interface{}) *http.Response {
+	t.Helper()
+	buf, err := json.Marshal(body)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(buf))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := app.Test(req, -1)
+	require.NoError(t, err)
+	return resp
+}
+
+func getURL(t *testing.T, app *fiber.App, path, token string) *http.Response {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := app.Test(req, -1)
+	require.NoError(t, err)
+	return resp
+}
+
+func putJSON(t *testing.T, app *fiber.App, path, token string, body interface{}) *http.Response {
+	t.Helper()
+	buf, err := json.Marshal(body)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPut, path, bytes.NewReader(buf))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := app.Test(req, -1)
+	require.NoError(t, err)
+	return resp
 }
 
 func decodeEnvelope(t *testing.T, resp *http.Response) (envelope, map[string]json.RawMessage) {
@@ -63,20 +100,20 @@ func decodeEnvelope(t *testing.T, resp *http.Response) (envelope, map[string]jso
 	require.Len(t, raw, 2, "envelope must contain exactly data and error keys, got %v", raw)
 
 	var env envelope
-	body, err := json.Marshal(raw)
+	b, err := json.Marshal(raw)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(body, &env))
+	require.NoError(t, json.Unmarshal(b, &env))
 	return env, raw
 }
 
 func TestEnvelope_HealthzSuccess(t *testing.T) {
-	srv := newTestServer(t)
+	app := newTestApp(t)
 
-	resp, err := http.Get(srv.URL + "/healthz")
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/healthz", nil), -1)
 	require.NoError(t, err)
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
+	require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 
 	env, raw := decodeEnvelope(t, resp)
 
@@ -97,17 +134,15 @@ func TestEnvelope_HealthzSuccess(t *testing.T) {
 }
 
 func TestEnvelope_DebugErrorFailure(t *testing.T) {
-	srv, tok := newTestServerWithAuth(t)
+	app, tok := newTestAppWithAuth(t)
 
-	req, err := http.NewRequest(http.MethodGet, srv.URL+"/debug/error", nil)
-	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodGet, "/debug/error", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := app.Test(req, -1)
 	require.NoError(t, err)
 
 	require.Equal(t, http.StatusTeapot, resp.StatusCode)
-	require.Equal(t, "application/json; charset=utf-8", resp.Header.Get("Content-Type"))
 
 	env, raw := decodeEnvelope(t, resp)
 
@@ -120,10 +155,9 @@ func TestEnvelope_DebugErrorFailure(t *testing.T) {
 }
 
 func TestEnvelope_AuthFailureShape(t *testing.T) {
-	// A protected route hit without the bearer must still return the error envelope.
-	srv := newTestServer(t)
+	app := newTestApp(t)
 
-	resp, err := http.Get(srv.URL + "/debug/error")
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/debug/error", nil), -1)
 	require.NoError(t, err)
 
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)

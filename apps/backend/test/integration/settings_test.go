@@ -1,27 +1,23 @@
 package integration
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/api"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/platform/config"
 )
 
-func newSettingsServer(t *testing.T) *httptest.Server {
+func newSettingsApp(t *testing.T) *fiber.App {
 	t.Helper()
 	cfg := config.Config{}
 	cfg.Auth.JWTSecret = "test-secret"
 	cfg.Auth.JWTTTLSec = 3600
-	apiSrv := api.New(cfg, nil, nil)
-	srv := httptest.NewServer(apiSrv.Handler())
-	t.Cleanup(srv.Close)
-	return srv
+	return api.New(cfg, nil, nil).App()
 }
 
 type settingsEnvelope struct {
@@ -38,36 +34,11 @@ type settingsEnvelope struct {
 	Error interface{} `json:"error"`
 }
 
-func putJSON(t *testing.T, url, token string, body interface{}) *http.Response {
-	t.Helper()
-	buf, err := json.Marshal(body)
-	require.NoError(t, err)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(buf))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	return resp
-}
-
-func registerAndLogin(t *testing.T, baseURL, user, role string) string {
-	t.Helper()
-	resp := postJSON(t, baseURL+"/api/auth/register", "", map[string]string{
-		"username": user, "password": "supersecret", "role": role,
-	})
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
-	return login(t, baseURL, user, "supersecret")
-}
-
 func TestSettings_RoundTrip_Operator(t *testing.T) {
-	srv := newSettingsServer(t)
-	tok := registerAndLogin(t, srv.URL, "op1", "operator")
+	app := newSettingsApp(t)
+	tok := registerAndLogin(t, app, "op1", "operator")
 
-	resp := getURL(t, srv.URL+"/api/settings", tok)
+	resp := getURL(t, app, "/api/settings", tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var got settingsEnvelope
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
@@ -86,7 +57,7 @@ func TestSettings_RoundTrip_Operator(t *testing.T) {
 		"notify_email":           true,
 		"notify_webhook_url":     "https://example.com/hook",
 	}
-	resp = putJSON(t, srv.URL+"/api/settings", tok, body)
+	resp = putJSON(t, app, "/api/settings", tok, body)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var put settingsEnvelope
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&put))
@@ -95,7 +66,7 @@ func TestSettings_RoundTrip_Operator(t *testing.T) {
 	require.Equal(t, "0.01", put.Data.MaxPositionPct)
 	require.True(t, put.Data.NotifyEmail)
 
-	resp = getURL(t, srv.URL+"/api/settings", tok)
+	resp = getURL(t, app, "/api/settings", tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var rt settingsEnvelope
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&rt))
@@ -108,8 +79,8 @@ func TestSettings_RoundTrip_Operator(t *testing.T) {
 }
 
 func TestSettings_Validation_Rejects(t *testing.T) {
-	srv := newSettingsServer(t)
-	tok := registerAndLogin(t, srv.URL, "op2", "operator")
+	app := newSettingsApp(t)
+	tok := registerAndLogin(t, app, "op2", "operator")
 
 	body := map[string]interface{}{
 		"default_symbol":         "ETHUSDT",
@@ -118,25 +89,25 @@ func TestSettings_Validation_Rejects(t *testing.T) {
 		"max_daily_drawdown_pct": "0.03",
 		"max_slippage_bps":       50,
 	}
-	resp := putJSON(t, srv.URL+"/api/settings", tok, body)
+	resp := putJSON(t, app, "/api/settings", tok, body)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
 
 	body["default_timeframe"] = "1m"
 	body["max_position_pct"] = "1.5"
-	resp = putJSON(t, srv.URL+"/api/settings", tok, body)
+	resp = putJSON(t, app, "/api/settings", tok, body)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	resp.Body.Close()
 }
 
 func TestSettings_RoleEnforcement(t *testing.T) {
-	srv := newSettingsServer(t)
+	app := newSettingsApp(t)
 
-	adminTok := registerAndLogin(t, srv.URL, "settadmin", "admin")
-	opTok := registerAndLogin(t, srv.URL, "settop", "operator")
-	viewTok := registerAndLogin(t, srv.URL, "settview", "viewer")
+	adminTok := registerAndLogin(t, app, "settadmin", "admin")
+	opTok := registerAndLogin(t, app, "settop", "operator")
+	viewTok := registerAndLogin(t, app, "settview", "viewer")
 
-	resp := getURL(t, srv.URL+"/api/auth/me", opTok)
+	resp := getURL(t, app, "/api/auth/me", opTok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var me struct {
 		Data struct {
@@ -156,34 +127,34 @@ func TestSettings_RoleEnforcement(t *testing.T) {
 		"max_slippage_bps":       30,
 	}
 
-	// Viewer cannot edit (operator-or-admin only for writes).
-	resp = putJSON(t, srv.URL+"/api/settings", viewTok, body)
+	// Viewer cannot edit.
+	resp = putJSON(t, app, "/api/settings", viewTok, body)
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)
 	resp.Body.Close()
 
 	// Viewer can read their own settings.
-	resp = getURL(t, srv.URL+"/api/settings", viewTok)
+	resp = getURL(t, app, "/api/settings", viewTok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
 	// Operator cannot edit another user's settings.
-	resp = putJSON(t, srv.URL+"/api/settings?user_id=some-other-id", opTok, body)
+	resp = putJSON(t, app, "/api/settings?user_id=some-other-id", opTok, body)
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)
 	resp.Body.Close()
 
 	// Operator cannot read another user's settings.
-	resp = getURL(t, srv.URL+"/api/settings?user_id=some-other-id", opTok)
+	resp = getURL(t, app, "/api/settings?user_id=some-other-id", opTok)
 	require.Equal(t, http.StatusForbidden, resp.StatusCode)
 	resp.Body.Close()
 
 	// Admin can edit the operator's settings.
 	body["default_symbol"] = "SOLUSDT"
-	resp = putJSON(t, srv.URL+"/api/settings?user_id="+opUserID, adminTok, body)
+	resp = putJSON(t, app, "/api/settings?user_id="+opUserID, adminTok, body)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
 	// Operator now reads the admin-applied change.
-	resp = getURL(t, srv.URL+"/api/settings", opTok)
+	resp = getURL(t, app, "/api/settings", opTok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var rt settingsEnvelope
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&rt))
@@ -191,7 +162,7 @@ func TestSettings_RoleEnforcement(t *testing.T) {
 	require.Equal(t, "SOLUSDT", rt.Data.DefaultSymbol)
 
 	// Unauthenticated -> 401 from the auth middleware.
-	resp = getURL(t, srv.URL+"/api/settings", "")
+	resp = getURL(t, app, "/api/settings", "")
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	resp.Body.Close()
 }

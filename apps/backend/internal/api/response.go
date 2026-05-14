@@ -14,11 +14,7 @@
 //     "validation_failed", "forbidden", "internal")
 package api
 
-import (
-	"encoding/json"
-	"log/slog"
-	"net/http"
-)
+import "github.com/gofiber/fiber/v2"
 
 // Envelope is the wire format for every JSON response.
 // Exactly one of Data or Error is non-nil.
@@ -35,25 +31,23 @@ type APIError struct {
 	Details interface{} `json:"details,omitempty"`
 }
 
-// WriteJSON writes a successful envelope with the given data.
-func WriteJSON(w http.ResponseWriter, status int, data interface{}) {
-	write(w, status, Envelope{Data: data, Error: nil})
+// OK writes a successful envelope with the given data payload.
+func OK(c *fiber.Ctx, data interface{}) error {
+	return c.JSON(Envelope{Data: data, Error: nil})
 }
 
-// WriteError writes a failed envelope with the given code and message.
-func WriteError(w http.ResponseWriter, status int, code, msg string) {
-	write(w, status, Envelope{Data: nil, Error: &APIError{Code: code, Message: msg}})
+// Err writes a failed envelope with the given HTTP status, code, and message.
+func Err(c *fiber.Ctx, status int, code, msg string) error {
+	return c.Status(status).JSON(Envelope{
+		Data:  nil,
+		Error: &APIError{Code: code, Message: msg},
+	})
 }
 
-// WriteErrorWithDetails writes a failed envelope including a structured details payload.
-func WriteErrorWithDetails(w http.ResponseWriter, status int, code, msg string, details interface{}) {
-	write(w, status, Envelope{Data: nil, Error: &APIError{Code: code, Message: msg, Details: details}})
-}
-
-func write(w http.ResponseWriter, status int, body Envelope) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(body); err != nil {
-		slog.Error("api: encode response", "err", err)
-	}
+// ErrDetails writes a failed envelope including a structured details payload.
+func ErrDetails(c *fiber.Ctx, status int, code, msg string, details interface{}) error {
+	return c.Status(status).JSON(Envelope{
+		Data:  nil,
+		Error: &APIError{Code: code, Message: msg, Details: details},
+	})
 }
