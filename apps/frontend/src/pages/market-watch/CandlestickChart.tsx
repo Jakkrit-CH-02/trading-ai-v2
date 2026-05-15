@@ -54,11 +54,11 @@ export default function CandlestickChart(props: CandlestickChartProps) {
     });
 
     const series = chart.addCandlestickSeries({
-      upColor: "#26a69a",
-      downColor: "#ef5350",
+      upColor: theme.palette.success.main,
+      downColor: theme.palette.error.main,
       borderVisible: false,
-      wickUpColor: "#26a69a",
-      wickDownColor: "#ef5350",
+      wickUpColor: theme.palette.success.main,
+      wickDownColor: theme.palette.error.main,
     });
 
     chartRef.current = chart;
@@ -75,7 +75,7 @@ export default function CandlestickChart(props: CandlestickChartProps) {
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, []);
+  }, [theme.palette.mode]);
 
   useEffect(() => {
     const series = seriesRef.current;
