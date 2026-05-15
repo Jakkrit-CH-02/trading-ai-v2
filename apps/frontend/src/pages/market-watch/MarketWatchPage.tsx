@@ -262,15 +262,19 @@ export default function MarketWatchPage() {
         )}
       </Card>
 
-      {selectedSymbol && chartQ.data ? (
+      {selectedSymbol && (
         <Card sx={{ p: 2 }}>
-          <CandlestickChart
-            symbol={selectedSymbol}
-            interval={interval}
-            bars={chartQ.data.bars}
-          />
+          {chartQ.isLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : chartQ.isError ? (
+            <Typography color="error">Failed to load chart.</Typography>
+          ) : chartQ.data ? (
+            <CandlestickChart symbol={selectedSymbol} interval={interval} bars={chartQ.data.bars} />
+          ) : null}
         </Card>
-      ) : null}
+      )}
     </Box>
   );
 }
