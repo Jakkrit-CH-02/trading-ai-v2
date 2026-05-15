@@ -39,6 +39,8 @@ const styles = {
   filters: { display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" },
   card: { p: 0, overflow: "hidden" },
   centerCell: { display: "flex", justifyContent: "center", alignItems: "center", py: 6 },
+  chartCard: { p: 2 },
+  chartLoading: { display: "flex", justifyContent: "center", py: 4 },
   changeCell: (n: number | null) => ({
     color:
       n == null
@@ -69,7 +71,7 @@ function fmtPct(n: number | null): string {
 }
 
 export default function MarketWatchPage() {
-  const [interval, setInterval] = useState<string>("1m");
+  const [chartInterval, setChartInterval] = useState<string>("1m");
   const [filter, setFilter] = useState<string>("");
   const [sortKey, setSortKey] = useState<SortKey>("symbol");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -85,8 +87,8 @@ export default function MarketWatchPage() {
 
   const snapshotQs = useQueries({
     queries: symbols.map((sym) => ({
-      queryKey: ["market", "snapshot", sym, interval],
-      queryFn: () => getSnapshot(sym, interval),
+      queryKey: ["market", "snapshot", sym, chartInterval],
+      queryFn: () => getSnapshot(sym, chartInterval),
       refetchInterval: REFETCH_MS,
       enabled: symbols.length > 0,
     })),
@@ -94,16 +96,16 @@ export default function MarketWatchPage() {
 
   const candleQs = useQueries({
     queries: symbols.map((sym) => ({
-      queryKey: ["market", "candles", sym, interval, 30],
-      queryFn: () => getCandles(sym, interval, 30),
+      queryKey: ["market", "candles", sym, chartInterval, 30],
+      queryFn: () => getCandles(sym, chartInterval, 30),
       refetchInterval: REFETCH_MS,
       enabled: symbols.length > 0,
     })),
   });
 
   const chartQ = useQuery({
-    queryKey: ["market", "candles", selectedSymbol, interval, 200],
-    queryFn: () => getCandles(selectedSymbol!, interval, 200),
+    queryKey: ["market", "candles", selectedSymbol, chartInterval, 200],
+    queryFn: () => getCandles(selectedSymbol!, chartInterval, 200),
     enabled: selectedSymbol != null,
     refetchInterval: REFETCH_MS,
   });
@@ -172,8 +174,8 @@ export default function MarketWatchPage() {
         />
         <Select
           size="small"
-          value={interval}
-          onChange={(e) => setInterval(e.target.value)}
+          value={chartInterval}
+          onChange={(e) => setChartInterval(e.target.value)}
           sx={{ width: 120 }}
         >
           {["1m", "5m", "15m", "1h", "4h", "1d"].map((tf) => (
@@ -263,16 +265,18 @@ export default function MarketWatchPage() {
       </Card>
 
       {selectedSymbol && (
-        <Card sx={{ p: 2 }}>
+        <Card sx={styles.chartCard}>
           {chartQ.isLoading ? (
-            <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+            <Box sx={styles.chartLoading}>
               <CircularProgress />
             </Box>
           ) : chartQ.isError ? (
             <Typography color="error">Failed to load chart.</Typography>
           ) : chartQ.data ? (
-            <CandlestickChart symbol={selectedSymbol} interval={interval} bars={chartQ.data.bars} />
-          ) : null}
+            <CandlestickChart symbol={selectedSymbol} interval={chartInterval} bars={chartQ.data.bars} />
+          ) : (
+            <Typography color="text.secondary">No chart data available.</Typography>
+          )}
         </Card>
       )}
     </Box>
