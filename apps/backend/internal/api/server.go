@@ -219,6 +219,7 @@ func (s *Server) mountRoutes(
 	registry := strategy.NewRegistry()
 	registry.Register(builtin.MACrossName, builtin.MACrossFactory)
 	registry.Register(builtin.RSIName, builtin.RSIFactory)
+	registry.Register(builtin.MARSIFilterName, builtin.MARSIFilterFactory)
 	registry.Register(builtin.AIName, func(cfg strategy.RuleConfig) (strategy.Strategy, error) {
 		client := aipkg.New(aipkg.Config{BaseURL: s.cfg.AI.BaseURL})
 		interval := cfg.Params["interval"]
@@ -248,12 +249,12 @@ func (s *Server) mountRoutes(
 		RequireStopLoss:     s.cfg.Risk.RequireStopLoss,
 	})
 
+	// Backtest klines are fetched from the Binance mainnet public API
+	// regardless of the paper/live testnet setting. Testnet has very limited
+	// historical data (days, not years) so backtests over historical ranges
+	// would always return "no bars in range" when testnet is enabled.
 	backtestClient := binance.New(binance.Config{
-		APIKey:      s.cfg.Binance.APIKey,
-		APISecret:   s.cfg.Binance.APISecret,
-		Testnet:     s.cfg.Binance.Testnet,
-		RestBaseURL: s.cfg.Binance.BaseURL,
-		WSBaseURL:   s.cfg.Binance.WSURL,
+		Testnet: false,
 	})
 	backtest.RegisterRoutes(s.app, backtest.NewHandler(backtestStore, repo, registry, rsk).WithRemoteFetcher(backtestClient))
 
