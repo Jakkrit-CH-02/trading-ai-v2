@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createChart, CrosshairMode, type IChartApi, type ISeriesApi, type CandlestickData, type UTCTimestamp } from "lightweight-charts";
-import { Box, Typography } from "@mui/material";
+import { Box, Typography, useTheme } from "@mui/material";
 import type { Bar } from "../../api/market";
 
 export interface CandlestickChartProps {
@@ -24,6 +24,7 @@ function toChartBar(b: Bar): CandlestickData {
 
 export default function CandlestickChart(props: CandlestickChartProps) {
   const { symbol, interval, bars } = props;
+  const theme = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -35,11 +36,21 @@ export default function CandlestickChart(props: CandlestickChartProps) {
     const chart = createChart(el, {
       width: el.clientWidth,
       height: CHART_HEIGHT,
-      layout: { background: { color: "#1e1e2e" }, textColor: "#cdd6f4" },
-      grid: { vertLines: { color: "#313244" }, horzLines: { color: "#313244" } },
+      layout: {
+        background: { color: theme.palette.background.paper },
+        textColor: theme.palette.text.primary,
+      },
+      grid: {
+        vertLines: { color: theme.palette.divider },
+        horzLines: { color: theme.palette.divider },
+      },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#45475a" },
-      timeScale: { borderColor: "#45475a", timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: theme.palette.divider },
+      timeScale: {
+        borderColor: theme.palette.divider,
+        timeVisible: true,
+        secondsVisible: false,
+      },
     });
 
     const series = chart.addCandlestickSeries({

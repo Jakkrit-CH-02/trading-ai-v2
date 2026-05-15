@@ -33,6 +33,7 @@ interface Row {
 }
 
 const REFETCH_MS = 2000;
+const SPARKLINE_INTERVAL = "1m";
 
 const styles = {
   root: { p: 3, display: "flex", flexDirection: "column", gap: 2 },
@@ -87,8 +88,8 @@ export default function MarketWatchPage() {
 
   const snapshotQs = useQueries({
     queries: symbols.map((sym) => ({
-      queryKey: ["market", "snapshot", sym, chartInterval],
-      queryFn: () => getSnapshot(sym, chartInterval),
+      queryKey: ["market", "snapshot", sym, SPARKLINE_INTERVAL],
+      queryFn: () => getSnapshot(sym, SPARKLINE_INTERVAL),
       refetchInterval: REFETCH_MS,
       enabled: symbols.length > 0,
     })),
@@ -96,8 +97,8 @@ export default function MarketWatchPage() {
 
   const candleQs = useQueries({
     queries: symbols.map((sym) => ({
-      queryKey: ["market", "candles", sym, chartInterval, 30],
-      queryFn: () => getCandles(sym, chartInterval, 30),
+      queryKey: ["market", "candles", sym, SPARKLINE_INTERVAL, 30],
+      queryFn: () => getCandles(sym, SPARKLINE_INTERVAL, 30),
       refetchInterval: REFETCH_MS,
       enabled: symbols.length > 0,
     })),
@@ -105,7 +106,7 @@ export default function MarketWatchPage() {
 
   const chartQ = useQuery({
     queryKey: ["market", "candles", selectedSymbol, chartInterval, 200],
-    queryFn: () => getCandles(selectedSymbol!, chartInterval, 200),
+    queryFn: () => getCandles(selectedSymbol ?? "", chartInterval, 200),
     enabled: selectedSymbol != null,
     refetchInterval: REFETCH_MS,
   });
@@ -272,7 +273,7 @@ export default function MarketWatchPage() {
             </Box>
           ) : chartQ.isError ? (
             <Typography color="error">Failed to load chart.</Typography>
-          ) : chartQ.data ? (
+          ) : chartQ.data && chartQ.data.bars.length > 0 ? (
             <CandlestickChart symbol={selectedSymbol} interval={chartInterval} bars={chartQ.data.bars} />
           ) : (
             <Typography color="text.secondary">No chart data available.</Typography>
