@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { createChart, CrosshairMode, type IChartApi, type ISeriesApi, type CandlestickData } from "lightweight-charts";
+import { createChart, CrosshairMode, type IChartApi, type ISeriesApi, type CandlestickData, type UTCTimestamp } from "lightweight-charts";
 import { Box, Typography } from "@mui/material";
 import type { Bar } from "../../api/market";
 
@@ -9,9 +9,12 @@ export interface CandlestickChartProps {
   bars: Bar[];
 }
 
+const CHART_HEIGHT = 320;
+
+// lightweight-charts requires JS numbers; string decimals are safe to convert here (display only)
 function toChartBar(b: Bar): CandlestickData {
   return {
-    time: Math.floor(b.close_time / 1000) as unknown as CandlestickData["time"],
+    time: Math.floor(b.close_time / 1000) as UTCTimestamp,
     open: Number(b.open),
     high: Number(b.high),
     low: Number(b.low),
@@ -31,7 +34,7 @@ export default function CandlestickChart(props: CandlestickChartProps) {
 
     const chart = createChart(el, {
       width: el.clientWidth,
-      height: 320,
+      height: CHART_HEIGHT,
       layout: { background: { color: "#1e1e2e" }, textColor: "#cdd6f4" },
       grid: { vertLines: { color: "#313244" }, horzLines: { color: "#313244" } },
       crosshair: { mode: CrosshairMode.Normal },
@@ -65,10 +68,12 @@ export default function CandlestickChart(props: CandlestickChartProps) {
 
   useEffect(() => {
     const series = seriesRef.current;
-    if (!series || bars.length === 0) return;
-    const data = bars.map(toChartBar).sort((a, b) => (a.time as number) - (b.time as number));
+    if (!series) return;
+    const data = bars.length === 0
+      ? []
+      : bars.map(toChartBar).sort((a, b) => (a.time as number) - (b.time as number));
     series.setData(data);
-    chartRef.current?.timeScale().fitContent();
+    if (data.length > 0) chartRef.current?.timeScale().fitContent();
   }, [bars]);
 
   return (
