@@ -9,7 +9,9 @@ const botStatus = () => ({
     state: mockBotState,
     mode: mockBotMode,
     symbol: mockBotSymbol,
-    last_signal: { id: "", action: "", symbol: "" },
+    last_signal: mockBotState === "running"
+      ? { id: "sig-1", action: "hold", symbol: mockBotSymbol, reason: "no cross", strategy: "ma_cross" }
+      : { id: "", action: "", symbol: "" },
     last_error: "",
   },
   error: null,
@@ -231,7 +233,62 @@ function publicUser(u: MockUser) {
   return { id: u.id, username: u.username, role: u.role, created_at: u.created_at };
 }
 
+// ----- market candle generator -----------------------------------------------
+// Generates synthetic OHLCV history seeded from lastClose so it looks live.
+const INTERVAL_MS: Record<string, number> = {
+  "1m": 60_000, "5m": 300_000, "15m": 900_000,
+  "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000,
+};
+
+function generateCandles(symbol: string, interval: string, limit: number) {
+  const step = INTERVAL_MS[interval] ?? 60_000;
+  const now = Math.floor(Date.now() / step) * step;
+  let price = lastClose;
+  const bars = [];
+  for (let i = limit - 1; i >= 0; i--) {
+    const openTime = now - i * step;
+    const o = price;
+    const c = Math.max(100, o + (Math.random() - 0.5) * 80);
+    const h = Math.max(o, c) + Math.random() * 30;
+    const l = Math.min(o, c) - Math.random() * 30;
+    const v = 1 + Math.random() * 5;
+    bars.push({
+      symbol,
+      interval,
+      open_time: openTime,
+      close_time: openTime + step - 1,
+      open: o.toFixed(2),
+      high: h.toFixed(2),
+      low: Math.max(1, l).toFixed(2),
+      close: c.toFixed(2),
+      volume: v.toFixed(4),
+    });
+    price = c;
+  }
+  return bars;
+}
+
 export const handlers = [
+  http.get("*/api/market/symbols", () =>
+    HttpResponse.json({ data: { symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"] }, error: null }),
+  ),
+  http.get("*/api/market/candles", ({ request }) => {
+    const url = new URL(request.url);
+    const symbol = url.searchParams.get("symbol") ?? "BTCUSDT";
+    const interval = url.searchParams.get("interval") ?? "1m";
+    const limit = Math.min(Number(url.searchParams.get("limit") ?? "30"), 500);
+    return HttpResponse.json({
+      data: { symbol, interval, bars: generateCandles(symbol, interval, limit) },
+      error: null,
+    });
+  }),
+  http.get("*/api/market/snapshot", ({ request }) => {
+    const url = new URL(request.url);
+    const symbol = url.searchParams.get("symbol") ?? "BTCUSDT";
+    const interval = url.searchParams.get("interval") ?? "1m";
+    const bars = generateCandles(symbol, interval, 1);
+    return HttpResponse.json({ data: { symbol, interval, latest: bars[0], source: "mock" }, error: null });
+  }),
   http.post("*/api/auth/login", async ({ request }) => {
     const body = (await request.json()) as { username: string; password: string };
     const u = mockUsers.find(
