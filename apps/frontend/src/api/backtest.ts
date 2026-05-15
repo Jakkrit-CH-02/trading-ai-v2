@@ -21,6 +21,7 @@ export const BacktestTradeSchema = z.object({
   side: z.string(),
   qty: z.string(),
   price: z.string(),
+  stop_loss_price: z.string().optional(),
   realized_pl: z.string(),
   reason: z.string(),
   timestamp_ms: z.number().int(),
@@ -68,6 +69,8 @@ export interface RunBacktestInput {
   initial_cash?: string;
   position_fraction?: string;
   stop_loss_pct?: string;
+  trail_activation_pct?: string;
+  trail_pct?: string;
   from_ms?: number;
   to_ms?: number;
   limit?: number;
@@ -89,6 +92,36 @@ export async function runBacktest(input: RunBacktestInput): Promise<BacktestResu
     input,
   );
   return unwrap(data, BacktestResultSchema);
+}
+
+export interface RunMultiBacktestInput {
+  symbols: string[];
+  interval: string;
+  strategy_name: string;
+  strategy_params?: Record<string, string>;
+  initial_cash?: string;
+  position_fraction?: string;
+  stop_loss_pct?: string;
+  trail_activation_pct?: string;
+  trail_pct?: string;
+  from_ms?: number;
+  to_ms?: number;
+  limit?: number;
+}
+
+export const MultiBacktestResultSchema = z.object({
+  results: z.array(BacktestResultSchema),
+});
+export type MultiBacktestResult = z.infer<typeof MultiBacktestResultSchema>;
+
+export async function runMultiBacktest(
+  input: RunMultiBacktestInput,
+): Promise<MultiBacktestResult> {
+  const { data } = await api.post<ApiEnvelope<unknown>>(
+    "/api/backtest/multi",
+    input,
+  );
+  return unwrap(data, MultiBacktestResultSchema);
 }
 
 export const EvaluationMetricsSchema = z.object({
