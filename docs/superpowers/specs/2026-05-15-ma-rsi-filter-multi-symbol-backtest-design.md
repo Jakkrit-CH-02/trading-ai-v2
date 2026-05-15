@@ -151,6 +151,34 @@ When strategy is `"ma_rsi_filter"`, the form shows three additional fields (cond
 
 ---
 
+## Timeframe-Aware Parameter Presets
+
+The `ma_rsi_filter` strategy works on any timeframe — the composite logic is bar-agnostic. However, the optimal EMA periods scale with bar duration: fast=9/slow=21 spans ~36h on 4h bars but only 45 minutes on 5m bars, producing far too much noise at shorter intervals.
+
+**Solution:** When the user selects `ma_rsi_filter` as the strategy, changing the Interval dropdown auto-populates the fast, slow, and RSI period fields with timeframe-appropriate defaults (via `useEffect` watching `[interval, strategy_name]`). All fields remain editable.
+
+### Preset Table
+
+| Interval | Fast EMA | Slow EMA | RSI Period | Character |
+|---|---|---|---|---|
+| 1m | 3 | 8 | 7 | Scalping — very sensitive, high noise |
+| 5m | 5 | 13 | 10 | Short momentum — intraday |
+| 15m | 8 | 21 | 14 | Intraday swing |
+| 1h | 9 | 21 | 14 | Same as 4h — solid intraday trend |
+| 4h | 9 | 21 | 14 | Current baseline |
+| 1d | 12 | 26 | 14 | Classic MACD-style daily trend |
+
+RSI buy/sell thresholds (`rsi_buy_max=60`, `rsi_sell_min=40`) stay constant across all timeframes — the overbought/oversold logic is scale-invariant.
+
+### Files Changed (Frontend)
+
+- **Edit:** `apps/frontend/src/pages/backtest/BacktestRunForm.tsx`
+  - Add a `TIMEFRAME_PRESETS` constant map keyed by interval string
+  - Add `useEffect([interval, strategy_name])`: when strategy is `ma_rsi_filter`, call `setValue` for `fast_period`, `slow_period`, `rsi_period` with preset values
+  - The effect only fires on interval/strategy change, not on every render — user overrides are preserved until the next interval/strategy switch
+
+---
+
 ## Out of Scope
 
 - Paper and live trading multi-symbol support (Phase 2)
