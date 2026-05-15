@@ -85,3 +85,26 @@ func TestLoadBars_FallsBackToRemoteAndPersists(t *testing.T) {
 	require.Equal(t, "BTCUSDT", fetcher.lastQuery.Symbol)
 	require.Equal(t, "1m", fetcher.lastQuery.Interval)
 }
+
+func TestValidateMultiSymbols(t *testing.T) {
+	cases := []struct {
+		name    string
+		symbols []string
+		wantErr string
+	}{
+		{"empty", []string{}, "symbols is required"},
+		{"too many", make([]string, 11), "at most 10"},
+		{"one symbol", []string{"BTCUSDT"}, ""},
+		{"ten symbols", make([]string, 10), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateMultiSymbols(tc.symbols)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

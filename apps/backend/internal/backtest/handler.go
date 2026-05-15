@@ -55,16 +55,18 @@ func (h *Handler) WithRemoteFetcher(f KlineFetcher) *Handler {
 
 // RunRequest is the wire DTO for POST /api/backtest/run.
 type RunRequest struct {
-	Symbol           string            `json:"symbol"`
-	Interval         string            `json:"interval"`
-	StrategyName     string            `json:"strategy_name"`
-	StrategyParams   map[string]string `json:"strategy_params"`
-	InitialCash      string            `json:"initial_cash"`
-	PositionFraction string            `json:"position_fraction"`
-	StopLossPct      string            `json:"stop_loss_pct"`
-	FromMs           int64             `json:"from_ms"`
-	ToMs             int64             `json:"to_ms"`
-	Limit            int               `json:"limit"`
+	Symbol             string            `json:"symbol"`
+	Interval           string            `json:"interval"`
+	StrategyName       string            `json:"strategy_name"`
+	StrategyParams     map[string]string `json:"strategy_params"`
+	InitialCash        string            `json:"initial_cash"`
+	PositionFraction   string            `json:"position_fraction"`
+	StopLossPct        string            `json:"stop_loss_pct"`
+	TrailActivationPct string            `json:"trail_activation_pct"`
+	TrailPct           string            `json:"trail_pct"`
+	FromMs             int64             `json:"from_ms"`
+	ToMs               int64             `json:"to_ms"`
+	Limit              int               `json:"limit"`
 }
 
 func (h *Handler) run(c *fiber.Ctx) error {
@@ -101,7 +103,18 @@ func (h *Handler) run(c *fiber.Ctx) error {
 		return errResp(c, fiber.StatusNotFound, "not_found", "no bars available for symbol/interval")
 	}
 
-	res, err := NewEngine(cfg, strat, h.risk).Run(c.UserContext(), bars)
+	// Use a per-run risk engine whose MaxPositionPct matches the requested
+	// position fraction. The global h.risk has MaxPositionPct=0.02 (prod
+	// default), but a backtest may intentionally trade larger fractions.
+	// DailyPnL and SlippageBps are always zero in the backtest engine, so
+	// those two checks are effectively disabled regardless of the policy values.
+	backtestRisk := risk.NewEngine(risk.Policy{
+		MaxPositionPct:      cfg.PositionFraction,
+		MaxDailyDrawdownPct: decimal.NewFromFloat(1),
+		MaxSlippageBps:      1_000_000,
+		RequireStopLoss:     true,
+	})
+	res, err := NewEngine(cfg, strat, backtestRisk).Run(c.UserContext(), bars)
 	if err != nil {
 		return errResp(c, fiber.StatusBadRequest, "validation_failed", err.Error())
 	}
@@ -280,6 +293,104 @@ func intervalStepMs(interval string) (int64, bool) {
 	return int64(time.Duration(n) * unit / time.Millisecond), true
 }
 
+func validateMultiSymbols(symbols []string) error {
+	if len(symbols) == 0 {
+		return fmt.Errorf("symbols is required")
+	}
+	if len(symbols) > 10 {
+		return fmt.Errorf("symbols must have at most 10 entries")
+	}
+	return nil
+}
+
+// MultiRunRequest is the wire DTO for POST /api/backtest/multi.
+type MultiRunRequest struct {
+	Symbols            []string          `json:"symbols"`
+	Interval           string            `json:"interval"`
+	StrategyName       string            `json:"strategy_name"`
+	StrategyParams     map[string]string `json:"strategy_params"`
+	InitialCash        string            `json:"initial_cash"`
+	PositionFraction   string            `json:"position_fraction"`
+	StopLossPct        string            `json:"stop_loss_pct"`
+	TrailActivationPct string            `json:"trail_activation_pct"`
+	TrailPct           string            `json:"trail_pct"`
+	FromMs             int64             `json:"from_ms"`
+	ToMs               int64             `json:"to_ms"`
+	Limit              int               `json:"limit"`
+}
+
+func (h *Handler) runMulti(c *fiber.Ctx) error {
+	var req MultiRunRequest
+	if err := c.BodyParser(&req); err != nil {
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", "invalid json body")
+	}
+	if err := validateMultiSymbols(req.Symbols); err != nil {
+		return errResp(c, fiber.StatusBadRequest, "validation_failed", err.Error())
+	}
+	if h.bars == nil {
+		return errResp(c, fiber.StatusServiceUnavailable, "internal", "bar source not configured")
+	}
+	if h.registry == nil {
+		return errResp(c, fiber.StatusServiceUnavailable, "internal", "strategy registry not configured")
+	}
+
+	results := make([]Result, 0, len(req.Symbols))
+	for _, sym := range req.Symbols {
+		single := RunRequest{
+			Symbol:             strings.ToUpper(strings.TrimSpace(sym)),
+			Interval:           req.Interval,
+			StrategyName:       req.StrategyName,
+			StrategyParams:     req.StrategyParams,
+			InitialCash:        req.InitialCash,
+			PositionFraction:   req.PositionFraction,
+			StopLossPct:        req.StopLossPct,
+			TrailActivationPct: req.TrailActivationPct,
+			TrailPct:           req.TrailPct,
+			FromMs:             req.FromMs,
+			ToMs:               req.ToMs,
+			Limit:              req.Limit,
+		}
+		cfg, err := single.toConfig()
+		if err != nil {
+			return errResp(c, fiber.StatusBadRequest, "validation_failed",
+				fmt.Sprintf("%s: %s", sym, err.Error()))
+		}
+		strat, err := h.registry.Build(strategy.RuleConfig{
+			Name:    cfg.StrategyName,
+			Enabled: true,
+			Symbol:  string(cfg.Symbol),
+			Params:  cfg.StrategyParams,
+		})
+		if err != nil {
+			return errResp(c, fiber.StatusBadRequest, "validation_failed", err.Error())
+		}
+		limit := resolveBacktestLimit(cfg, req.Limit)
+		bars, err := h.loadBars(c.UserContext(), cfg, limit)
+		if err != nil {
+			return errResp(c, fiber.StatusInternalServerError, "internal", err.Error())
+		}
+		if len(bars) == 0 {
+			return errResp(c, fiber.StatusNotFound, "not_found",
+				fmt.Sprintf("no bars available for %s/%s", sym, req.Interval))
+		}
+		backtestRisk := risk.NewEngine(risk.Policy{
+			MaxPositionPct:      cfg.PositionFraction,
+			MaxDailyDrawdownPct: decimal.NewFromFloat(1),
+			MaxSlippageBps:      1_000_000,
+			RequireStopLoss:     true,
+		})
+		res, err := NewEngine(cfg, strat, backtestRisk).Run(c.UserContext(), bars)
+		if err != nil {
+			return errResp(c, fiber.StatusBadRequest, "validation_failed", err.Error())
+		}
+		results = append(results, res)
+	}
+
+	return c.JSON(okEnv(struct {
+		Results []Result `json:"results"`
+	}{Results: results}))
+}
+
 func (h *Handler) list(c *fiber.Ctx) error {
 	if h.store == nil {
 		return errResp(c, fiber.StatusServiceUnavailable, "internal", "store not configured")
@@ -356,16 +467,26 @@ func (req RunRequest) toConfig() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("stop_loss_pct: %w", err)
 	}
+	trailAct, err := parseDec(req.TrailActivationPct, decimal.Zero)
+	if err != nil {
+		return Config{}, fmt.Errorf("trail_activation_pct: %w", err)
+	}
+	trail, err := parseDec(req.TrailPct, decimal.Zero)
+	if err != nil {
+		return Config{}, fmt.Errorf("trail_pct: %w", err)
+	}
 	return Config{
-		Symbol:           domain.Symbol(sym),
-		Interval:         interval,
-		StrategyName:     strings.TrimSpace(req.StrategyName),
-		StrategyParams:   req.StrategyParams,
-		InitialCash:      cash,
-		PositionFraction: frac,
-		StopLossPct:      stop,
-		FromMs:           req.FromMs,
-		ToMs:             req.ToMs,
+		Symbol:             domain.Symbol(sym),
+		Interval:           interval,
+		StrategyName:       strings.TrimSpace(req.StrategyName),
+		StrategyParams:     req.StrategyParams,
+		InitialCash:        cash,
+		PositionFraction:   frac,
+		StopLossPct:        stop,
+		TrailActivationPct: trailAct,
+		TrailPct:           trail,
+		FromMs:             req.FromMs,
+		ToMs:               req.ToMs,
 	}, nil
 }
 
