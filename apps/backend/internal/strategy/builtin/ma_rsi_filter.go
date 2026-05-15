@@ -26,7 +26,7 @@ type MARSIFilter struct {
 func NewMARSIFilter(fast, slow, rsiPeriod int, rsiBuyMax, rsiSellMin decimal.Decimal) *MARSIFilter {
 	return &MARSIFilter{
 		ma:         NewMACross(fast, slow),
-		rsiCalc:    NewRSI(rsiPeriod, decimal.NewFromInt(30), decimal.NewFromInt(70)),
+		rsiCalc:    NewRSI(rsiPeriod, decimal.NewFromInt(30), decimal.NewFromInt(70)), // oversold/overbought unused — gate reads CurrentRSI() directly
 		rsiBuyMax:  rsiBuyMax,
 		rsiSellMin: rsiSellMin,
 	}
@@ -70,12 +70,12 @@ func (f *MARSIFilter) OnBar(ctx context.Context, b domain.Bar) (strategy.Signal,
 				Symbol:    b.Symbol,
 				Action:    domain.SignalActionBuy,
 				Strategy:  MARSIFilterName,
-				Reason:    fmt.Sprintf("%s; rsi %.2f < buy_max %.2f", maSig.Reason, rsiVal.InexactFloat64(), f.rsiBuyMax.InexactFloat64()),
+				Reason:    fmt.Sprintf("%s; rsi %s < buy_max %s", maSig.Reason, rsiVal.StringFixed(2), f.rsiBuyMax.StringFixed(2)),
 				Strength:  maSig.Strength,
 				CreatedMs: timex.NowMs(),
 			}, nil
 		}
-		hold.Reason = fmt.Sprintf("rsi_gate_blocked: rsi %.2f >= buy_max %.2f", rsiVal.InexactFloat64(), f.rsiBuyMax.InexactFloat64())
+		hold.Reason = fmt.Sprintf("rsi_gate_blocked: rsi %s >= buy_max %s", rsiVal.StringFixed(2), f.rsiBuyMax.StringFixed(2))
 	case domain.SignalActionSell:
 		if rsiVal.GreaterThan(f.rsiSellMin) {
 			return strategy.Signal{
@@ -83,12 +83,12 @@ func (f *MARSIFilter) OnBar(ctx context.Context, b domain.Bar) (strategy.Signal,
 				Symbol:    b.Symbol,
 				Action:    domain.SignalActionSell,
 				Strategy:  MARSIFilterName,
-				Reason:    fmt.Sprintf("%s; rsi %.2f > sell_min %.2f", maSig.Reason, rsiVal.InexactFloat64(), f.rsiSellMin.InexactFloat64()),
+				Reason:    fmt.Sprintf("%s; rsi %s > sell_min %s", maSig.Reason, rsiVal.StringFixed(2), f.rsiSellMin.StringFixed(2)),
 				Strength:  maSig.Strength,
 				CreatedMs: timex.NowMs(),
 			}, nil
 		}
-		hold.Reason = fmt.Sprintf("rsi_gate_blocked: rsi %.2f <= sell_min %.2f", rsiVal.InexactFloat64(), f.rsiSellMin.InexactFloat64())
+		hold.Reason = fmt.Sprintf("rsi_gate_blocked: rsi %s <= sell_min %s", rsiVal.StringFixed(2), f.rsiSellMin.StringFixed(2))
 	}
 
 	return hold, nil
