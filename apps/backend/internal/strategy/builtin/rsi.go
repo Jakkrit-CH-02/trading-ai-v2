@@ -108,6 +108,14 @@ func (r *RSI) OnBar(_ context.Context, b domain.Bar) (strategy.Signal, error) {
 	return sig, nil
 }
 
+// CurrentRSI returns the current RSI value and whether the indicator has warmed up.
+func (r *RSI) CurrentRSI() (decimal.Decimal, bool) {
+	if !r.ready {
+		return decimal.Zero, false
+	}
+	return r.compute(), true
+}
+
 func (r *RSI) compute() decimal.Decimal {
 	if r.avgLoss.IsZero() {
 		return decimal.NewFromInt(100)
