@@ -18,6 +18,7 @@ import {
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { getCandles, getSnapshot, getSymbols } from "../../api/market";
 import Sparkline from "./Sparkline";
+import CandlestickChart from "./CandlestickChart";
 
 type SortKey = "symbol" | "price" | "change";
 type SortDir = "asc" | "desc";
@@ -32,12 +33,15 @@ interface Row {
 }
 
 const REFETCH_MS = 2000;
+const SPARKLINE_INTERVAL = "1m";
 
 const styles = {
   root: { p: 3, display: "flex", flexDirection: "column", gap: 2 },
   filters: { display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" },
   card: { p: 0, overflow: "hidden" },
   centerCell: { display: "flex", justifyContent: "center", alignItems: "center", py: 6 },
+  chartCard: { p: 2 },
+  chartLoading: { display: "flex", justifyContent: "center", py: 4 },
   changeCell: (n: number | null) => ({
     color:
       n == null
@@ -68,10 +72,11 @@ function fmtPct(n: number | null): string {
 }
 
 export default function MarketWatchPage() {
-  const [interval, setInterval] = useState<string>("1m");
+  const [chartInterval, setChartInterval] = useState<string>("1m");
   const [filter, setFilter] = useState<string>("");
   const [sortKey, setSortKey] = useState<SortKey>("symbol");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
   const symbolsQ = useQuery({
     queryKey: ["market", "symbols"],
@@ -83,8 +88,8 @@ export default function MarketWatchPage() {
 
   const snapshotQs = useQueries({
     queries: symbols.map((sym) => ({
-      queryKey: ["market", "snapshot", sym, interval],
-      queryFn: () => getSnapshot(sym, interval),
+      queryKey: ["market", "snapshot", sym, SPARKLINE_INTERVAL],
+      queryFn: () => getSnapshot(sym, SPARKLINE_INTERVAL),
       refetchInterval: REFETCH_MS,
       enabled: symbols.length > 0,
     })),
@@ -92,11 +97,18 @@ export default function MarketWatchPage() {
 
   const candleQs = useQueries({
     queries: symbols.map((sym) => ({
-      queryKey: ["market", "candles", sym, interval, 30],
-      queryFn: () => getCandles(sym, interval, 30),
+      queryKey: ["market", "candles", sym, SPARKLINE_INTERVAL, 30],
+      queryFn: () => getCandles(sym, SPARKLINE_INTERVAL, 30),
       refetchInterval: REFETCH_MS,
       enabled: symbols.length > 0,
     })),
+  });
+
+  const chartQ = useQuery({
+    queryKey: ["market", "candles", selectedSymbol, chartInterval, 200],
+    queryFn: () => getCandles(selectedSymbol ?? "", chartInterval, 200),
+    enabled: selectedSymbol != null,
+    refetchInterval: REFETCH_MS,
   });
 
   const rows: Row[] = useMemo(() => {
@@ -163,8 +175,8 @@ export default function MarketWatchPage() {
         />
         <Select
           size="small"
-          value={interval}
-          onChange={(e) => setInterval(e.target.value)}
+          value={chartInterval}
+          onChange={(e) => setChartInterval(e.target.value)}
           sx={{ width: 120 }}
         >
           {["1m", "5m", "15m", "1h", "4h", "1d"].map((tf) => (
@@ -229,7 +241,13 @@ export default function MarketWatchPage() {
             </TableHead>
             <TableBody>
               {filtered.map((r) => (
-                <TableRow key={r.symbol} hover>
+                <TableRow
+                  key={r.symbol}
+                  hover
+                  selected={r.symbol === selectedSymbol}
+                  onClick={() => setSelectedSymbol(r.symbol === selectedSymbol ? null : r.symbol)}
+                  sx={{ cursor: "pointer" }}
+                >
                   <TableCell sx={{ fontWeight: 600 }}>{r.symbol}</TableCell>
                   <TableCell align="right" sx={styles.numCell}>
                     {fmtPrice(r.priceStr || null)}
@@ -246,6 +264,22 @@ export default function MarketWatchPage() {
           </Table>
         )}
       </Card>
+
+      {selectedSymbol && (
+        <Card sx={styles.chartCard}>
+          {chartQ.isLoading ? (
+            <Box sx={styles.chartLoading}>
+              <CircularProgress />
+            </Box>
+          ) : chartQ.isError ? (
+            <Typography color="error">Failed to load chart.</Typography>
+          ) : chartQ.data && chartQ.data.bars.length > 0 ? (
+            <CandlestickChart symbol={selectedSymbol} interval={chartInterval} bars={chartQ.data.bars} />
+          ) : (
+            <Typography color="text.secondary">No chart data available.</Typography>
+          )}
+        </Card>
+      )}
     </Box>
   );
 }
