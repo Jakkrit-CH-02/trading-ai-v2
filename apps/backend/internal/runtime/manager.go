@@ -119,6 +119,7 @@ func NewManager(binanceCfg binance.Config) *Manager {
 }
 
 // WithHub attaches a bar hub so every processed bar is published to WS clients.
+// Must be called before Start.
 func (m *Manager) WithHub(h *market.Hub) *Manager {
 	m.hub = h
 	return m
@@ -195,15 +196,17 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) error {
 	// Tee bars to the WS hub before passing to the controller.
 	teedBars := make(chan domain.Bar, 8)
 	go func() {
+		defer close(teedBars)
 		for b := range bars {
 			m.publishBar(b)
 			select {
 			case teedBars <- b:
 			case <-feedCtx.Done():
+				// drain bars so KlineStream's goroutine can finish cleanly
+				for range bars {}
 				return
 			}
 		}
-		close(teedBars)
 	}()
 
 	ctrl := NewController(pipe, teedBars, req.Mode, req.Symbol).WithFlattener(eng)
