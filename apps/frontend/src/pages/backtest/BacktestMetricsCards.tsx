@@ -6,6 +6,10 @@ export interface BacktestMetricsCardsProps {
   result: BacktestResult;
 }
 
+export function netProfitAbs(initialEquity: string, finalEquity: string): number {
+  return Number(finalEquity) - Number(initialEquity);
+}
+
 const styles = {
   grid: {
     display: "grid",
@@ -13,12 +17,15 @@ const styles = {
     gridTemplateColumns: {
       xs: "1fr 1fr",
       sm: "repeat(3, 1fr)",
-      md: "repeat(6, 1fr)",
+      md: "repeat(4, 1fr)",
+      lg: "repeat(7, 1fr)",
     },
   },
   cell: { display: "flex", flexDirection: "column", gap: 0.5 },
   label: { color: "text.secondary", fontSize: 12, letterSpacing: 0.5 },
   value: { fontSize: 18, fontWeight: 600 },
+  heroValue: { fontSize: 22, fontWeight: 600 },
+  subLine: { fontSize: 11, color: "text.secondary" },
 } as const;
 
 function pct(decimalString: string): string {
@@ -50,6 +57,11 @@ export default function BacktestMetricsCards(props: BacktestMetricsCardsProps) {
   const toClamped = requestedTo != null && requestedTo > actualTo;
   const showRangeWarning = fromClamped || toClamped;
 
+  const np = netProfitAbs(result.initial_equity, result.final_equity);
+  const npColor =
+    np > 0 ? "success.main" : np < 0 ? "error.main" : "text.primary";
+  const retPct = Number(m.total_return);
+
   return (
     <Card>
       <CardContent>
@@ -57,6 +69,21 @@ export default function BacktestMetricsCards(props: BacktestMetricsCardsProps) {
           KPI Summary
         </Typography>
         <Box sx={styles.grid}>
+          <Box sx={styles.cell}>
+            <Typography sx={styles.label}>NET PROFIT</Typography>
+            <Typography sx={{ ...styles.heroValue, color: npColor }}>
+              {np >= 0 ? "+" : ""}
+              {np.toFixed(2)}
+            </Typography>
+            <Typography sx={styles.subLine}>
+              ${result.initial_equity} → ${result.final_equity}
+            </Typography>
+            <Typography sx={styles.subLine}>
+              {Number.isFinite(retPct)
+                ? `${retPct >= 0 ? "+" : ""}${(retPct * 100).toFixed(2)}%`
+                : "—"}
+            </Typography>
+          </Box>
           <Box sx={styles.cell}>
             <Typography sx={styles.label}>TOTAL RETURN</Typography>
             <Typography sx={{ ...styles.value, color: returnColor(m.total_return) }}>
@@ -92,8 +119,7 @@ export default function BacktestMetricsCards(props: BacktestMetricsCardsProps) {
           </Box>
         </Box>
         <Box sx={{ mt: 2, color: "text.secondary", fontSize: 12 }}>
-          Bars processed: {result.bars_processed} · Initial equity:{" "}
-          {result.initial_equity} · Final equity: {result.final_equity}
+          Bars processed: {result.bars_processed}
         </Box>
         <Box sx={{ mt: 2, display: "flex", flexDirection: "column", gap: 0.75 }}>
           <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
