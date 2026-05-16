@@ -7,7 +7,8 @@ export interface BacktestMetricsCardsProps {
 }
 
 export function netProfitAbs(initialEquity: string, finalEquity: string): number {
-  return Number(finalEquity) - Number(initialEquity);
+  const np = Number(finalEquity) - Number(initialEquity);
+  return Number.isFinite(np) ? np : 0;
 }
 
 const styles = {
