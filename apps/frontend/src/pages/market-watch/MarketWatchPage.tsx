@@ -16,7 +16,9 @@ import {
   Typography,
 } from "@mui/material";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { getCandles, getSnapshot, getSymbols } from "../../api/market";
+import { getCandles, getSymbols } from "../../api/market";
+import { useMarketStreamStore } from "../../stores/marketStreamStore";
+import { useMarketStream } from "../../hooks/useMarketStream";
 import Sparkline from "./Sparkline";
 import CandlestickChart from "./CandlestickChart";
 
@@ -32,8 +34,8 @@ interface Row {
   loading: boolean;
 }
 
-const REFETCH_MS = 2000;
 const SPARKLINE_INTERVAL = "1m";
+const CHART_REFETCH_MS = 60_000;
 
 const styles = {
   root: { p: 3, display: "flex", flexDirection: "column", gap: 2 },
@@ -81,25 +83,19 @@ export default function MarketWatchPage() {
   const symbolsQ = useQuery({
     queryKey: ["market", "symbols"],
     queryFn: getSymbols,
-    refetchInterval: REFETCH_MS,
+    staleTime: 30_000,
   });
 
   const symbols = symbolsQ.data?.symbols ?? [];
 
-  const snapshotQs = useQueries({
-    queries: symbols.map((sym) => ({
-      queryKey: ["market", "snapshot", sym, SPARKLINE_INTERVAL],
-      queryFn: () => getSnapshot(sym, SPARKLINE_INTERVAL),
-      refetchInterval: REFETCH_MS,
-      enabled: symbols.length > 0,
-    })),
-  });
+  useMarketStream(symbols);
+  const latestBars = useMarketStreamStore((s) => s.latestBars);
 
   const candleQs = useQueries({
     queries: symbols.map((sym) => ({
       queryKey: ["market", "candles", sym, SPARKLINE_INTERVAL, 30],
       queryFn: () => getCandles(sym, SPARKLINE_INTERVAL, 30),
-      refetchInterval: REFETCH_MS,
+      staleTime: 60_000,
       enabled: symbols.length > 0,
     })),
   });
@@ -108,33 +104,34 @@ export default function MarketWatchPage() {
     queryKey: ["market", "candles", selectedSymbol, chartInterval, 200],
     queryFn: () => getCandles(selectedSymbol ?? "", chartInterval, 200),
     enabled: selectedSymbol != null,
-    refetchInterval: REFETCH_MS,
+    refetchInterval: CHART_REFETCH_MS,
   });
 
   const rows: Row[] = useMemo(() => {
     return symbols.map((sym, i) => {
-      const snap = snapshotQs[i]?.data;
       const candles = candleQs[i]?.data;
       const spark = candles?.bars.map((b) => Number(b.close)) ?? [];
-      const price = snap ? Number(snap.latest.close) : null;
+
+      const liveBar = latestBars[sym];
+      const priceStr = liveBar?.close ?? (spark.length > 0 ? String(spark[spark.length - 1]) : "");
+      const price = priceStr ? Number(priceStr) : null;
+
       let change: number | null = null;
       if (spark.length >= 2) {
         const first = spark[0];
-        const last = spark[spark.length - 1];
+        const last = price ?? spark[spark.length - 1];
         if (first > 0) change = ((last - first) / first) * 100;
       }
       return {
         symbol: sym,
         price,
-        priceStr: snap?.latest.close ?? "",
+        priceStr,
         change,
         spark,
-        loading:
-          (snapshotQs[i]?.isLoading ?? false) ||
-          (candleQs[i]?.isLoading ?? false),
+        loading: candleQs[i]?.isLoading ?? false,
       };
     });
-  }, [symbols, snapshotQs, candleQs]);
+  }, [symbols, candleQs, latestBars]);
 
   const filtered = useMemo(() => {
     const f = filter.trim().toUpperCase();
