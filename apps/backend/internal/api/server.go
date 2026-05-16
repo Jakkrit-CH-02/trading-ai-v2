@@ -275,7 +275,8 @@ func isPublicPath(c *fiber.Ctx) bool {
 	case "/healthz",
 		"/api/ai/healthz",
 		"/api/auth/login",
-		"/api/auth/register":
+		"/api/auth/register",
+		"/api/market/stream":
 		return true
 	}
 	return strings.HasPrefix(p, "/healthz")
