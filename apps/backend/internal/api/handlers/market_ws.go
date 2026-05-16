@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gorilla/websocket"
@@ -95,11 +96,15 @@ func (h *marketWS) handleConn(conn net.Conn, req *http.Request) {
 	defer wsConn.Close()
 
 	// Expect the subscribe message as the very first frame.
+	// Give the client 10 s to send the subscribe message before timing out.
+	wsConn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	var sub wsSubscribeMsg
 	if err := wsConn.ReadJSON(&sub); err != nil {
-		slog.Warn("market ws: read subscribe failed", "service", "api", "err", err)
+		slog.Warn("market ws: subscribe read failed", "service", "api", "err", err)
 		return
 	}
+	wsConn.SetReadDeadline(time.Time{})
+
 	if sub.Type != "subscribe" || len(sub.Symbols) == 0 {
 		_ = wsConn.WriteJSON(map[string]string{
 			"type":    "error",
@@ -108,11 +113,56 @@ func (h *marketWS) handleConn(conn net.Conn, req *http.Request) {
 		return
 	}
 
-	// done is closed to signal all fan-in goroutines to exit.
-	done := make(chan struct{})
-	var closeOnce sync.Once
-	closeDone := func() { closeOnce.Do(func() { close(done) }) }
-	defer closeDone()
+	const maxWsSymbols = 20
+	if len(sub.Symbols) > maxWsSymbols {
+		slog.Warn("market ws: invalid symbol count", "service", "api", "count", len(sub.Symbols))
+		_ = wsConn.WriteJSON(map[string]string{
+			"type":    "error",
+			"message": "too many symbols: max 20",
+		})
+		return
+	}
+
+	// shutdown is closed when any goroutine detects the connection is gone.
+	var once sync.Once
+	shutdown := make(chan struct{})
+	closeFn := func() { once.Do(func() { close(shutdown) }) }
+	defer closeFn()
+
+	// Read pump: drives gorilla control-frame handling and detects disconnects.
+	// A 60 s read deadline is refreshed on every pong; if no pong arrives within
+	// 60 s the read will time out and closeFn() will fire.
+	wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	wsConn.SetPongHandler(func(string) error {
+		wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+	go func() {
+		defer closeFn()
+		for {
+			if _, _, err := wsConn.NextReader(); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Ping ticker: sends a ping every 30 s to keep the connection alive and
+	// detect dead clients (no pong → 60 s read deadline fires in read pump).
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-shutdown:
+				return
+			case <-t.C:
+				if err := wsConn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
+					closeFn()
+					return
+				}
+			}
+		}
+	}()
 
 	// mergedBars collects bars from all subscribed symbols into a single channel.
 	type barEvent struct {
@@ -128,7 +178,7 @@ func (h *marketWS) handleConn(conn net.Conn, req *http.Request) {
 			defer h.hub.Unsubscribe(symbol, ch)
 			for {
 				select {
-				case <-done:
+				case <-shutdown:
 					return
 				case bar, ok := <-ch:
 					if !ok {
@@ -137,7 +187,7 @@ func (h *marketWS) handleConn(conn net.Conn, req *http.Request) {
 					ev := barEvent{symbol: symbol, bar: toBarDTO(bar)}
 					select {
 					case mergedBars <- ev:
-					case <-done:
+					case <-shutdown:
 						return
 					default:
 						// Slow client: drop frame rather than blocking the publisher.
@@ -151,7 +201,7 @@ func (h *marketWS) handleConn(conn net.Conn, req *http.Request) {
 	// write error occurs.
 	for {
 		select {
-		case <-done:
+		case <-shutdown:
 			return
 		case ev, ok := <-mergedBars:
 			if !ok {
@@ -186,8 +236,10 @@ func newFakeResponseWriter(conn net.Conn) *fakeResponseWriter {
 	}
 }
 
-func (f *fakeResponseWriter) Header() http.Header                          { return f.header }
-func (f *fakeResponseWriter) WriteHeader(_ int)                            {}
+func (f *fakeResponseWriter) Header() http.Header { return f.header }
+
+// WriteHeader is intentionally a no-op: gorilla writes the 101 response directly to netConn after Hijack().
+func (f *fakeResponseWriter) WriteHeader(_ int) {}
 func (f *fakeResponseWriter) Write(b []byte) (int, error)                 { return f.conn.Write(b) }
 func (f *fakeResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return f.conn, f.brw, nil
