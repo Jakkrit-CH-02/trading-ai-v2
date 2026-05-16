@@ -6,6 +6,8 @@ import (
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/domain"
 )
 
+const subscriberBufSize = 8 // buffers ~8 one-minute bars before dropping
+
 // Hub fans bar events out to zero or more per-symbol subscribers.
 // Each subscriber gets its own buffered channel; slow readers drop frames
 // rather than blocking the publisher.
@@ -20,7 +22,7 @@ func NewHub() *Hub {
 
 // Subscribe returns a channel that receives bars for the given symbol.
 func (h *Hub) Subscribe(symbol string) <-chan domain.Bar {
-	ch := make(chan domain.Bar, 8)
+	ch := make(chan domain.Bar, subscriberBufSize)
 	h.mu.Lock()
 	h.subs[symbol] = append(h.subs[symbol], ch)
 	h.mu.Unlock()
@@ -37,6 +39,9 @@ func (h *Hub) Unsubscribe(symbol string, ch <-chan domain.Bar) {
 	for i, c := range list {
 		if c == ch {
 			h.subs[symbol] = append(list[:i], list[i+1:]...)
+			if len(h.subs[symbol]) == 0 {
+				delete(h.subs, symbol)
+			}
 			return
 		}
 	}

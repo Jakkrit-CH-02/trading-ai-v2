@@ -21,7 +21,7 @@ func TestHub_PublishDeliversToSubscriber(t *testing.T) {
 
 	select {
 	case got := <-ch:
-		require.Equal(t, bar.Close, got.Close)
+		require.Equal(t, bar, got)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("timeout: no bar received")
 	}
@@ -58,7 +58,7 @@ func TestHub_MultipleSubscribersReceiveSameBar(t *testing.T) {
 	for _, ch := range []<-chan domain.Bar{ch1, ch2} {
 		select {
 		case got := <-ch:
-			require.Equal(t, bar.Close, got.Close)
+			require.Equal(t, bar, got)
 		case <-time.After(100 * time.Millisecond):
 			t.Fatal("timeout: subscriber did not receive bar")
 		}
