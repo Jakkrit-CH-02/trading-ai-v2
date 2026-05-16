@@ -12,6 +12,7 @@ import (
 type Deps struct {
 	Manager    *runtime.Manager
 	MarketSvc  *market.Service
+	Hub        *market.Hub
 	BinanceCfg binance.Config
 	AIBaseURL  string
 }
@@ -26,6 +27,7 @@ func RegisterRoutes(app *fiber.App, d Deps) {
 	bkey := newBinanceKey(d.BinanceCfg)
 	ai := newAIProxy(d.AIBaseURL)
 	mkt := newMarket(d.MarketSvc)
+	mktWS := newMarketWS(d.Hub)
 
 	// Bot control
 	app.Get("/api/bot/status", bot.status)
@@ -69,6 +71,9 @@ func RegisterRoutes(app *fiber.App, d Deps) {
 	app.Get("/api/market/symbols", mkt.symbols)
 	app.Get("/api/market/candles", mkt.candles)
 	app.Get("/api/market/snapshot", mkt.snapshot)
+
+	// Market WebSocket stream
+	app.Get("/api/market/stream", mktWS.stream)
 }
 
 // writeOK writes a success envelope.

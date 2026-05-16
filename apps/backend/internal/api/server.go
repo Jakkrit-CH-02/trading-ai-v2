@@ -207,6 +207,7 @@ func (s *Server) mountRoutes(
 	handlers.RegisterRoutes(s.app, handlers.Deps{
 		Manager:   mgr,
 		MarketSvc: marketSvc,
+		Hub:       marketSvc.Hub(),
 		BinanceCfg: binance.Config{
 			APIKey:      s.cfg.Binance.APIKey,
 			APISecret:   s.cfg.Binance.APISecret,
