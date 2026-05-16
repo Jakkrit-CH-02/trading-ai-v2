@@ -7,7 +7,7 @@
 - Go 1.22+ (use `range over int`)
 - HTTP: `chi` (`go-chi/chi/v5`)
 - WebSocket (Binance): `gorilla/websocket`
-- WebSocket (frontend): `nhooyr/websocket`
+- WebSocket (frontend): `gorilla/websocket` (same lib as Binance connector)
 - Logging: `log/slog` (JSON in prod, text in dev)
 - Config: `viper` (YAML + env override)
 - Money: `github.com/shopspring/decimal`
