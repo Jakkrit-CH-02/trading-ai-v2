@@ -84,13 +84,14 @@ func New(cfg config.Config, pg *pgxpool.Pool, rdb *goredis.Client, opts ...Optio
 		o.Alerts = alert.NewService(alert.NewMemoryRepo(), alert.StdoutNotifier{})
 	}
 
+	mktHub := market.NewHub()
 	mgr := runtime.NewManager(binance.Config{
 		APIKey:      cfg.Binance.APIKey,
 		APISecret:   cfg.Binance.APISecret,
 		Testnet:     cfg.Binance.Testnet,
 		RestBaseURL: cfg.Binance.BaseURL,
 		WSBaseURL:   cfg.Binance.WSURL,
-	})
+	}).WithHub(mktHub)
 	syms := make([]domain.Symbol, 0, len(cfg.Symbols))
 	for _, s := range cfg.Symbols {
 		syms = append(syms, domain.Symbol(s))
@@ -112,7 +113,7 @@ func New(cfg config.Config, pg *pgxpool.Pool, rdb *goredis.Client, opts ...Optio
 	if rdb != nil {
 		cache = data.NewRedisCache(rdb, time.Minute)
 	}
-	marketSvc := market.NewService(cache, repo, syms)
+	marketSvc := market.NewService(cache, repo, syms, mktHub)
 
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: true,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/binance"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/data/market"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/domain"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/order"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/paper"
@@ -20,7 +22,10 @@ import (
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/strategy/builtin"
 )
 
-const startupWarmupBars = 64
+// startupWarmupBars must be large enough for EMA to converge before live
+// bars arrive. For EMA(21) with α≈0.09, residual weight of seed after 300
+// bars is (0.909)^300 < 1e-13 — effectively zero.
+const startupWarmupBars = 300
 
 // TradeRecord is a filled paper order stored for history.
 type TradeRecord struct {
@@ -29,9 +34,12 @@ type TradeRecord struct {
 	Side        string `json:"side"`
 	Qty         string `json:"qty"`
 	FillPrice   string `json:"fill_price"`
+	StopPrice   string `json:"stop_price"`
+	TakeProfit  string `json:"take_profit"`
 	RealizedPL  string `json:"realized_pl"`
 	Cash        string `json:"cash"`
 	TimestampMs int64  `json:"timestamp_ms"`
+	ExitReason  string `json:"exit_reason,omitempty"`
 }
 
 // EquityPoint is a point on the equity curve.
@@ -64,20 +72,26 @@ type PortfolioSnapshot struct {
 
 // StartRequest holds validated parameters for Manager.Start.
 type StartRequest struct {
-	Mode             domain.Mode
-	Strategy         string
-	Symbol           domain.Symbol
-	Timeframe        string
-	MaxPositionPct   decimal.Decimal
-	MaxDailyDrawdown decimal.Decimal
-	MaxSlippageBps   int
-	StopLossFraction decimal.Decimal
+	Mode               domain.Mode
+	Strategy           string
+	StrategyParams     map[string]string // e.g. {"fast":"9","slow":"21"}
+	Symbol             domain.Symbol
+	Timeframe          string
+	PositionFraction   decimal.Decimal // fraction of equity per trade
+	MaxPositionPct     decimal.Decimal // risk ceiling; separate from sizing
+	MaxDailyDrawdown   decimal.Decimal
+	MaxSlippageBps     int
+	StopLossFraction   decimal.Decimal
+	TrailActivationPct decimal.Decimal // profit % to activate trailing SL (0 = use hard SL only)
+	TrailPct           decimal.Decimal // trail distance below high (0 = no trail)
+	TakeProfitPct      decimal.Decimal // fixed TP % above entry (0 = disabled)
 }
 
 // Manager owns the lifecycle of a paper-trading session: bar feed, pipeline,
 // controller, and accumulated state (trades, equity curve).
 type Manager struct {
 	binanceCfg binance.Config
+	hub        *market.Hub
 
 	mu          sync.Mutex
 	eng         *paper.Engine
@@ -104,6 +118,18 @@ func NewManager(binanceCfg binance.Config) *Manager {
 	}
 }
 
+// WithHub attaches a bar hub so every processed bar is published to WS clients.
+func (m *Manager) WithHub(h *market.Hub) *Manager {
+	m.hub = h
+	return m
+}
+
+func (m *Manager) publishBar(b domain.Bar) {
+	if m.hub != nil {
+		m.hub.Publish(string(b.Symbol), b)
+	}
+}
+
 // Start builds and starts the paper trading pipeline with the given config.
 // Returns ErrAlreadyRunning when already running, ErrHalted when halted.
 func (m *Manager) Start(ctx context.Context, req StartRequest) error {
@@ -119,7 +145,7 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) error {
 		}
 	}
 
-	strat, err := buildStrategy(req.Strategy)
+	strat, err := buildStrategy(req.Strategy, req.StrategyParams)
 	if err != nil {
 		return err
 	}
@@ -136,13 +162,23 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) error {
 	mgr := order.NewManager(order.NewRouter(eng, nil), req.Mode)
 
 	sizer := FixedFractionSizer(PipelineConfig{
-		PositionFraction: req.MaxPositionPct,
-		StopLossFraction: req.StopLossFraction,
+		PositionFraction:   req.PositionFraction,
+		StopLossFraction:   req.StopLossFraction,
+		TrailActivationPct: req.TrailActivationPct,
+		TrailPct:           req.TrailPct,
+		TakeProfitPct:      req.TakeProfitPct,
 	})
 
 	pipe := NewPipeline(strategy.NewEngine(strat), rsk, mgr, eng, eng, eng, sizer)
 
-	binClient := binance.New(m.binanceCfg)
+	// Price feed always uses mainnet regardless of the testnet setting.
+	// Testnet klines are artificial and don't reflect real market prices; paper
+	// fills are simulated locally so no authenticated testnet calls are needed.
+	priceCfg := m.binanceCfg
+	priceCfg.Testnet = false
+	priceCfg.RestBaseURL = ""
+	priceCfg.WSBaseURL = ""
+	binClient := binance.New(priceCfg)
 	if err := m.warmPipeline(ctx, binClient, pipe, req); err != nil {
 		slog.WarnContext(ctx, "runtime warmup failed; continuing with live stream only",
 			"service", "runtime",
@@ -156,7 +192,21 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) error {
 	feedCtx, cancelFeed := context.WithCancel(context.Background())
 	bars := binClient.KlineStream(feedCtx, req.Symbol, req.Timeframe)
 
-	ctrl := NewController(pipe, bars, req.Mode, req.Symbol).WithFlattener(eng)
+	// Tee bars to the WS hub before passing to the controller.
+	teedBars := make(chan domain.Bar, 8)
+	go func() {
+		for b := range bars {
+			m.publishBar(b)
+			select {
+			case teedBars <- b:
+			case <-feedCtx.Done():
+				return
+			}
+		}
+		close(teedBars)
+	}()
+
+	ctrl := NewController(pipe, teedBars, req.Mode, req.Symbol).WithFlattener(eng)
 	if err := ctrl.Start(ctx); err != nil {
 		cancelFeed()
 		return err
@@ -399,9 +449,12 @@ func (m *Manager) drainEvents(ctx context.Context, ch <-chan paper.TradeLogEvent
 				Side:        string(evt.Side),
 				Qty:         evt.Qty.StringFixed(6),
 				FillPrice:   evt.FillPrice.StringFixed(2),
+				StopPrice:   evt.StopPrice.StringFixed(2),
+				TakeProfit:  evt.TakeProfit.StringFixed(2),
 				RealizedPL:  evt.RealizedPL.StringFixed(2),
 				Cash:        evt.Cash.StringFixed(2),
 				TimestampMs: evt.TimestampMs,
+				ExitReason:  evt.ExitReason,
 			}
 			m.mu.Lock()
 			m.trades = append(m.trades, tr)
@@ -433,11 +486,25 @@ func (m *Manager) snapshotEquity(ctx context.Context, eng *paper.Engine) {
 	}
 }
 
-func buildStrategy(name string) (strategy.Strategy, error) {
+func buildStrategy(name string, params map[string]string) (strategy.Strategy, error) {
+	if params == nil {
+		params = map[string]string{}
+	}
 	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), " ", "_"))
 	switch normalized {
 	case "ma_crossover", "ma_cross", "ma_crossover_(9,21)":
-		return builtin.NewMACross(9, 21), nil
+		fast, slow := 9, 21
+		if v, ok := params["fast"]; ok {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				fast = n
+			}
+		}
+		if v, ok := params["slow"]; ok {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				slow = n
+			}
+		}
+		return builtin.NewMACross(fast, slow), nil
 	case "rsi", "rsi_(14)":
 		return builtin.NewRSI(14, decimal.NewFromInt(30), decimal.NewFromInt(70)), nil
 	default:

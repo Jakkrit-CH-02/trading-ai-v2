@@ -16,12 +16,16 @@ type Service struct {
 	cache   data.Cache
 	repo    data.Repo
 	symbols []domain.Symbol
+	hub     *Hub
 }
 
-// NewService wires cache, repo and the configured symbol list.
-func NewService(cache data.Cache, repo data.Repo, symbols []domain.Symbol) *Service {
-	return &Service{cache: cache, repo: repo, symbols: symbols}
+// NewService wires cache, repo, the configured symbol list, and the bar hub.
+func NewService(cache data.Cache, repo data.Repo, symbols []domain.Symbol, hub *Hub) *Service {
+	return &Service{cache: cache, repo: repo, symbols: symbols, hub: hub}
 }
+
+// Hub returns the bar pub/sub hub for WebSocket fan-out.
+func (s *Service) Hub() *Hub { return s.hub }
 
 // Symbols returns the configured tradable symbols (deep copy).
 func (s *Service) Symbols() []domain.Symbol {
