@@ -172,7 +172,7 @@ func TestMarketData_CollectorWritesAndAPIServes(t *testing.T) {
 	require.Len(t, again, 3)
 
 	// HTTP layer: create a Fiber app with just the market routes.
-	svc := market.NewService(cache, repo, []domain.Symbol{sym, "ETHUSDT"})
+	svc := market.NewService(cache, repo, []domain.Symbol{sym, "ETHUSDT"}, market.NewHub())
 	app := newMarketApp(svc)
 
 	do := func(path string) *http.Response {
@@ -245,7 +245,7 @@ func TestMarketData_CollectorWritesAndAPIServes(t *testing.T) {
 
 	t.Run("snapshot postgres fallback", func(t *testing.T) {
 		emptyCache := newFakeCache()
-		fbSvc := market.NewService(emptyCache, repo, []domain.Symbol{sym})
+		fbSvc := market.NewService(emptyCache, repo, []domain.Symbol{sym}, market.NewHub())
 		fbApp := newMarketApp(fbSvc)
 		req := httptest.NewRequest(http.MethodGet, "/api/market/snapshot?symbol=BTCUSDT&interval=1m", nil)
 		resp, err := fbApp.Test(req, -1)
