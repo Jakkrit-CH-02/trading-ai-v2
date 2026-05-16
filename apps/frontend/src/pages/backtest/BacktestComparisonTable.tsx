@@ -27,7 +27,8 @@ type SortKey =
   | "total_trades";
 
 export function computeNetProfit(r: BacktestResult): number {
-  return Number(r.final_equity) - Number(r.initial_equity);
+  const np = Number(r.final_equity) - Number(r.initial_equity);
+  return Number.isFinite(np) ? np : 0;
 }
 
 const styles = {
@@ -125,8 +126,7 @@ export default function BacktestComparisonTable(
                       {r.config.symbol}
                     </TableCell>
                     <TableCell sx={{ color: npColor, fontWeight: 600 }}>
-                      {np >= 0 ? "+" : ""}
-                      {np.toFixed(2)}
+                      {`${np > 0 ? "+" : ""}${np.toFixed(2)}`}
                     </TableCell>
                     <TableCell sx={{ color: retColor, fontWeight: 600 }}>
                       {pct(r.metrics.total_return)}

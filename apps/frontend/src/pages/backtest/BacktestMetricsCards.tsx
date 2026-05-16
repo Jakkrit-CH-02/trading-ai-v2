@@ -72,8 +72,7 @@ export default function BacktestMetricsCards(props: BacktestMetricsCardsProps) {
           <Box sx={styles.cell}>
             <Typography sx={styles.label}>NET PROFIT</Typography>
             <Typography sx={{ ...styles.heroValue, color: npColor }}>
-              {np >= 0 ? "+" : ""}
-              {np.toFixed(2)}
+              {`${np > 0 ? "+" : ""}${np.toFixed(2)}`}
             </Typography>
             <Typography sx={styles.subLine}>
               ${result.initial_equity} → ${result.final_equity}
