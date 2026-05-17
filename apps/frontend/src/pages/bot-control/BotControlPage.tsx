@@ -56,12 +56,16 @@ const DEFAULTS: StartRequest = {
   mode: "paper",
   strategy: "ma_cross",
   symbol: "BTCUSDT",
-  timeframe: "1m",
+  timeframe: "5m",
   risk: {
-    max_position_pct: 0.02,
+    max_position_pct: 0.5,
     max_daily_drawdown_pct: 0.05,
     max_slippage_bps: 30,
-    stop_loss_fraction: 0.05,
+    position_fraction: 0.3,
+    stop_loss_fraction: 0.03,
+    trail_activation_pct: 0.02,
+    trail_pct: 0.015,
+    take_profit_pct: 0.06,
   },
 };
 
@@ -100,23 +104,49 @@ function StatusBlock({ status }: { status: BotStatus | undefined }) {
   if (!status) {
     return <Chip label="UNKNOWN" size="small" />;
   }
+  const sig = status.last_signal;
+  const sigAction = sig?.action ?? "";
+  const sigColor =
+    sigAction === "buy"
+      ? "success.main"
+      : sigAction === "sell"
+        ? "error.main"
+        : "text.secondary";
   return (
-    <Box sx={styles.statusRow}>
-      <Chip
-        label={status.state.toUpperCase()}
-        color={STATE_COLOR[status.state]}
-        size="small"
-        sx={{ fontWeight: 600 }}
-      />
-      <Typography sx={{ color: "text.secondary" }}>
-        mode: <strong>{status.mode}</strong>
-      </Typography>
-      <Typography sx={{ color: "text.secondary" }}>
-        symbol: <strong>{status.symbol || "—"}</strong>
-      </Typography>
-      {status.last_error ? (
-        <Typography sx={{ color: "error.main" }}>
-          last error: {status.last_error}
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+      <Box sx={styles.statusRow}>
+        <Chip
+          label={status.state.toUpperCase()}
+          color={STATE_COLOR[status.state]}
+          size="small"
+          sx={{ fontWeight: 600 }}
+        />
+        <Typography sx={{ color: "text.secondary" }}>
+          mode: <strong>{status.mode}</strong>
+        </Typography>
+        <Typography sx={{ color: "text.secondary" }}>
+          symbol: <strong>{status.symbol || "—"}</strong>
+        </Typography>
+        {status.last_error ? (
+          <Typography sx={{ color: "error.main" }}>
+            last error: {status.last_error}
+          </Typography>
+        ) : null}
+      </Box>
+      {sig && sigAction ? (
+        <Typography sx={{ fontSize: 12, color: "text.secondary" }}>
+          last signal:{" "}
+          <strong style={{ color: "inherit" }}>
+            <Box component="span" sx={{ color: sigColor, fontWeight: 700 }}>
+              {sigAction.toUpperCase()}
+            </Box>
+          </strong>
+          {sig.reason ? ` — ${sig.reason}` : ""}
+          {sig.strategy ? (
+            <Box component="span" sx={{ color: "text.disabled" }}>
+              {" "}({sig.strategy})
+            </Box>
+          ) : null}
         </Typography>
       ) : null}
     </Box>
@@ -388,7 +418,11 @@ export default function BotControlPage() {
                 maxPositionPct: "risk.max_position_pct",
                 maxDailyDrawdownPct: "risk.max_daily_drawdown_pct",
                 maxSlippageBps: "risk.max_slippage_bps",
+                positionFraction: "risk.position_fraction",
                 stopLossFraction: "risk.stop_loss_fraction",
+                trailActivationPct: "risk.trail_activation_pct",
+                trailPct: "risk.trail_pct",
+                takeProfitPct: "risk.take_profit_pct",
               }}
             />
 
