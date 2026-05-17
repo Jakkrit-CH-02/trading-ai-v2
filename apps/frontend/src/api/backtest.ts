@@ -9,6 +9,7 @@ export const BacktestConfigSchema = z.object({
   initial_cash: z.string(),
   position_fraction: z.string(),
   stop_loss_pct: z.string(),
+  take_profit_pct: z.string().optional(),
   from_ms: z.number().int().optional(),
   to_ms: z.number().int().optional(),
 });
@@ -69,6 +70,7 @@ export interface RunBacktestInput {
   initial_cash?: string;
   position_fraction?: string;
   stop_loss_pct?: string;
+  take_profit_pct?: string;
   trail_activation_pct?: string;
   trail_pct?: string;
   from_ms?: number;
@@ -102,6 +104,7 @@ export interface RunMultiBacktestInput {
   initial_cash?: string;
   position_fraction?: string;
   stop_loss_pct?: string;
+  take_profit_pct?: string;
   trail_activation_pct?: string;
   trail_pct?: string;
   from_ms?: number;

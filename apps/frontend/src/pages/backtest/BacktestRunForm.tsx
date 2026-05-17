@@ -47,6 +47,7 @@ export interface BacktestRunFormValues {
   initial_cash: string;
   position_fraction: string;
   stop_loss_pct: string;
+  take_profit_pct: string;
   trail_activation_pct: string;
   trail_pct: string;
   from: string;
@@ -82,8 +83,9 @@ export default function BacktestRunForm(props: BacktestRunFormProps) {
         strategy_name: "ma_rsi_filter",
         initial_cash: "10000",
         position_fraction: "0.1",
-        stop_loss_pct: "0.08",
-        trail_activation_pct: "0.03",
+        stop_loss_pct: "0.03",
+        take_profit_pct: "0.06",
+        trail_activation_pct: "0.02",
         trail_pct: "0.02",
         from: "",
         to: "",
@@ -138,6 +140,7 @@ export default function BacktestRunForm(props: BacktestRunFormProps) {
       initial_cash: v.initial_cash,
       position_fraction: v.position_fraction,
       stop_loss_pct: v.stop_loss_pct,
+      take_profit_pct: v.take_profit_pct || undefined,
       trail_activation_pct: v.trail_activation_pct || undefined,
       trail_pct: v.trail_pct || undefined,
       from_ms: Number.isFinite(fromMs) && fromMs > 0 ? fromMs : undefined,
@@ -253,6 +256,12 @@ export default function BacktestRunForm(props: BacktestRunFormProps) {
               label="Stop loss pct (0..1)"
               size="small"
               {...register("stop_loss_pct")}
+            />
+            <TextField
+              label="Take Profit % (0..1)"
+              size="small"
+              helperText="TP = entry × (1 + fraction); 0 = disabled"
+              {...register("take_profit_pct")}
             />
             <TextField
               label="Trail Activation % (0..1)"
