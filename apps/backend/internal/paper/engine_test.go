@@ -333,22 +333,22 @@ func TestEngine_DailyPnL_AccumulatesWithinDay(t *testing.T) {
 
 	eng.OnBar(domain.Bar{Symbol: "BTCUSDT", Close: decimal.NewFromInt(100)})
 
-	buyOrder := domain.Order{
+	bo := domain.Order{
 		ID: "o1", Symbol: "BTCUSDT", Side: domain.SideBuy,
 		Type: domain.OrderTypeMarket, Qty: decimal.NewFromInt(10),
 		StopPrice: decimal.NewFromInt(90),
 		Mode:      domain.ModePaper,
 	}
-	_, err := eng.Place(ctx, buyOrder)
+	_, err := eng.Place(ctx, bo)
 	require.NoError(t, err)
 
 	eng.OnBar(domain.Bar{Symbol: "BTCUSDT", Close: decimal.NewFromInt(110)})
-	sellOrder := domain.Order{
+	so := domain.Order{
 		ID: "o2", Symbol: "BTCUSDT", Side: domain.SideSell,
 		Type: domain.OrderTypeMarket, Qty: decimal.NewFromInt(10),
 		Mode: domain.ModePaper,
 	}
-	_, err = eng.Place(ctx, sellOrder)
+	_, err = eng.Place(ctx, so)
 	require.NoError(t, err)
 
 	require.True(t, eng.DailyPnL().IsPositive(), "profitable day → daily PnL must be positive")
@@ -363,15 +363,75 @@ func TestEngine_DailyPnL_ResetAfterReset(t *testing.T) {
 		Type: domain.OrderTypeMarket, Qty: decimal.NewFromInt(5),
 		StopPrice: decimal.NewFromInt(90), Mode: domain.ModePaper,
 	}
-	_, _ = eng.Place(ctx, buy)
+	_, err := eng.Place(ctx, buy)
+	require.NoError(t, err)
 	eng.OnBar(domain.Bar{Symbol: "BTCUSDT", Close: decimal.NewFromInt(110)})
 	sell := domain.Order{
 		ID: "o4", Symbol: "BTCUSDT", Side: domain.SideSell,
 		Type: domain.OrderTypeMarket, Qty: decimal.NewFromInt(5),
 		Mode: domain.ModePaper,
 	}
-	_, _ = eng.Place(ctx, sell)
+	_, err = eng.Place(ctx, sell)
+	require.NoError(t, err)
 
 	eng.Reset()
 	require.True(t, eng.DailyPnL().IsZero(), "after Reset daily PnL must be zero")
+}
+
+func TestEngine_DailyPnL_AccumulatesFromCheckExits(t *testing.T) {
+	ctx := context.Background()
+	eng := NewEngine(decimal.NewFromInt(10_000))
+
+	// Seed price and open a position.
+	eng.OnBar(domain.Bar{Symbol: "BTCUSDT", Close: decimal.NewFromInt(100)})
+	bo := domain.Order{
+		ID: "ceo1", Symbol: "BTCUSDT", Side: domain.SideBuy,
+		Type: domain.OrderTypeMarket, Qty: decimal.NewFromInt(5),
+		StopPrice: decimal.NewFromInt(90), Mode: domain.ModePaper,
+	}
+	_, err := eng.Place(ctx, bo)
+	require.NoError(t, err)
+
+	// Trigger a stop-loss exit via CheckExits: price drops below stop.
+	lowBar := domain.Bar{
+		Symbol: "BTCUSDT",
+		Close:  decimal.NewFromInt(85), // below stop of 90
+		Low:    decimal.NewFromInt(85),
+		High:   decimal.NewFromInt(85),
+	}
+	eng.OnBar(lowBar)
+	exits, err := eng.CheckExits(ctx, lowBar)
+	require.NoError(t, err)
+	require.NotEmpty(t, exits, "stop-loss must fire")
+
+	// The auto-exit at a loss should make DailyPnL negative.
+	require.True(t, eng.DailyPnL().IsNegative(),
+		"stop-loss exit below entry → daily PnL must be negative, got %s", eng.DailyPnL())
+}
+
+func TestEngine_DailyPnL_NegativeOnLosingDay(t *testing.T) {
+	ctx := context.Background()
+	eng := NewEngine(decimal.NewFromInt(10_000))
+
+	eng.OnBar(domain.Bar{Symbol: "BTCUSDT", Close: decimal.NewFromInt(100)})
+	bo := domain.Order{
+		ID: "neg1", Symbol: "BTCUSDT", Side: domain.SideBuy,
+		Type: domain.OrderTypeMarket, Qty: decimal.NewFromInt(10),
+		StopPrice: decimal.NewFromInt(50), Mode: domain.ModePaper,
+	}
+	_, err := eng.Place(ctx, bo)
+	require.NoError(t, err)
+
+	// Sell at 90 — a loss vs entry of ~100.
+	eng.OnBar(domain.Bar{Symbol: "BTCUSDT", Close: decimal.NewFromInt(90)})
+	so := domain.Order{
+		ID: "neg2", Symbol: "BTCUSDT", Side: domain.SideSell,
+		Type: domain.OrderTypeMarket, Qty: decimal.NewFromInt(10),
+		Mode: domain.ModePaper,
+	}
+	_, err = eng.Place(ctx, so)
+	require.NoError(t, err)
+
+	require.True(t, eng.DailyPnL().IsNegative(),
+		"selling below entry → daily PnL must be negative, got %s", eng.DailyPnL())
 }
