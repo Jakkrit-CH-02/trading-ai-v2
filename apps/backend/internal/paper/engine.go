@@ -10,6 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/domain"
+	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/platform/ids"
 	"github.com/jakkrit-ch/trading-ai-v2/backend/internal/platform/timex"
 )
 
@@ -37,9 +38,12 @@ type TradeLogEvent struct {
 	Side        domain.Side     `json:"side"`
 	Qty         decimal.Decimal `json:"qty"`
 	FillPrice   decimal.Decimal `json:"fill_price"`
+	StopPrice   decimal.Decimal `json:"stop_price"`   // SL set on buy; zero for sells
+	TakeProfit  decimal.Decimal `json:"take_profit"`  // TP set on buy; zero for sells
 	Cash        decimal.Decimal `json:"cash"`
 	RealizedPL  decimal.Decimal `json:"realized_pl"`
 	TimestampMs int64           `json:"timestamp_ms"`
+	ExitReason  string          `json:"exit_reason,omitempty"` // "stop_loss" | "take_profit" | ""
 }
 
 // Engine is the paper-mode order executor. It maintains a virtual cash
@@ -52,15 +56,23 @@ type Engine struct {
 	positions map[domain.Symbol]*domain.Position
 	lastClose map[domain.Symbol]decimal.Decimal
 	events    chan TradeLogEvent
+
+	// Daily P&L tracking. totalRealizedPL is the cumulative sum of all fills.
+	// dayStartPL is the snapshot taken at the start of the current UTC day.
+	// currentDayUTC is unix-ms / 86_400_000 for the day of the last snapshot.
+	totalRealizedPL decimal.Decimal
+	dayStartPL      decimal.Decimal
+	currentDayUTC   int64
 }
 
 func NewEngine(initialCash decimal.Decimal) *Engine {
 	return &Engine{
-		cash:      initialCash,
-		initial:   initialCash,
-		positions: make(map[domain.Symbol]*domain.Position),
-		lastClose: make(map[domain.Symbol]decimal.Decimal),
-		events:    make(chan TradeLogEvent, eventBuffer),
+		cash:          initialCash,
+		initial:       initialCash,
+		positions:     make(map[domain.Symbol]*domain.Position),
+		lastClose:     make(map[domain.Symbol]decimal.Decimal),
+		events:        make(chan TradeLogEvent, eventBuffer),
+		currentDayUTC: timex.NowMs() / 86_400_000,
 	}
 }
 
@@ -81,15 +93,32 @@ func (e *Engine) Initial() decimal.Decimal {
 	return e.initial
 }
 
-// OnBar feeds the latest bar so the engine can mark positions and price
-// subsequent fills. Must be called at least once per symbol before Place.
+// OnBar feeds the latest bar so the engine can mark positions and advance the
+// trailing stop. Must be called at least once per symbol before Place.
 func (e *Engine) OnBar(b domain.Bar) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.lastClose[b.Symbol] = b.Close
-	if p, ok := e.positions[b.Symbol]; ok && !p.Qty.IsZero() {
-		p.UnrealizedPL = b.Close.Sub(p.AvgEntry).Mul(p.Qty)
-		p.UpdatedMs = b.CloseTime
+	p, ok := e.positions[b.Symbol]
+	if !ok || p.Qty.IsZero() {
+		return
+	}
+	p.UnrealizedPL = b.Close.Sub(p.AvgEntry).Mul(p.Qty)
+	p.UpdatedMs = b.CloseTime
+
+	// Advance trail: once price exceeds entry * (1 + activation%), raise SL.
+	if p.TrailPct.IsPositive() && p.AvgEntry.IsPositive() {
+		one := decimal.NewFromInt(1)
+		activation := p.AvgEntry.Mul(one.Add(p.TrailActivationPct))
+		if b.Close.GreaterThan(activation) {
+			if b.Close.GreaterThan(p.TrailHigh) {
+				p.TrailHigh = b.Close
+			}
+			newSL := p.TrailHigh.Mul(one.Sub(p.TrailPct))
+			if newSL.GreaterThan(p.StopLoss) {
+				p.StopLoss = newSL
+			}
+		}
 	}
 }
 
@@ -98,6 +127,19 @@ func (e *Engine) Balance() decimal.Decimal {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.cash
+}
+
+// DailyPnL returns the net realized P&L since the start of the current UTC day.
+// Negative means a net loss today. Resets automatically at UTC midnight.
+func (e *Engine) DailyPnL() decimal.Decimal {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	today := timex.NowMs() / 86_400_000
+	if today != e.currentDayUTC {
+		e.dayStartPL = e.totalRealizedPL
+		e.currentDayUTC = today
+	}
+	return e.totalRealizedPL.Sub(e.dayStartPL)
 }
 
 // Equity returns cash + sum(position.qty * lastClose) — the mark-to-market
@@ -179,6 +221,12 @@ func (e *Engine) Place(ctx context.Context, o domain.Order) (domain.Order, error
 		pos.AvgEntry = pos.AvgEntry.Mul(pos.Qty).Add(fill.Mul(o.Qty)).Div(newQty)
 		pos.Qty = newQty
 		e.cash = e.cash.Sub(cost)
+		// Set exit management fields from the order.
+		pos.StopLoss = o.StopPrice
+		pos.TakeProfit = o.TakeProfit
+		pos.TrailActivationPct = o.TrailActivationPct
+		pos.TrailPct = o.TrailPct
+		pos.TrailHigh = fill // seed trail high at fill price
 
 	case domain.SideSell:
 		if o.Qty.GreaterThan(pos.Qty) {
@@ -187,6 +235,7 @@ func (e *Engine) Place(ctx context.Context, o domain.Order) (domain.Order, error
 		}
 		realizedDelta = fill.Sub(pos.AvgEntry).Mul(o.Qty)
 		pos.RealizedPL = pos.RealizedPL.Add(realizedDelta)
+		e.totalRealizedPL = e.totalRealizedPL.Add(realizedDelta)
 		pos.Qty = pos.Qty.Sub(o.Qty)
 		e.cash = e.cash.Add(o.Qty.Mul(fill))
 		if pos.Qty.IsZero() {
@@ -208,13 +257,15 @@ func (e *Engine) Place(ctx context.Context, o domain.Order) (domain.Order, error
 	filled.UpdatedMs = now
 
 	evt := TradeLogEvent{
-		OrderID:     filled.ID,
-		Symbol:      o.Symbol,
-		Side:        o.Side,
-		Qty:         o.Qty,
-		FillPrice:   fill,
-		Cash:        e.cash,
-		RealizedPL:  realizedDelta,
+		OrderID:    filled.ID,
+		Symbol:     o.Symbol,
+		Side:       o.Side,
+		Qty:        o.Qty,
+		FillPrice:  fill,
+		StopPrice:  o.StopPrice,
+		TakeProfit: o.TakeProfit,
+		Cash:       e.cash,
+		RealizedPL: realizedDelta,
 		TimestampMs: now,
 	}
 	select {
@@ -291,6 +342,100 @@ func (e *Engine) FlattenPositions(ctx context.Context) error {
 	return firstErr
 }
 
+// CheckExits implements the runtime.ExitMonitor interface. It is called by
+// the pipeline after each bar to enforce trailing-stop, hard-stop-loss, and
+// take-profit exit conditions on every open position for the bar's symbol.
+// Exits are executed as internal fills (identical accounting to Place) and
+// their events are emitted on the trade-log channel for the UI.
+func (e *Engine) CheckExits(ctx context.Context, b domain.Bar) ([]domain.Order, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	pos, ok := e.positions[b.Symbol]
+	if !ok || pos.Qty.IsZero() {
+		return nil, nil
+	}
+
+	price := b.Close
+	var exitReason string
+	switch {
+	case pos.StopLoss.IsPositive() && price.LessThanOrEqual(pos.StopLoss):
+		exitReason = "stop_loss"
+	case pos.TakeProfit.IsPositive() && price.GreaterThanOrEqual(pos.TakeProfit):
+		exitReason = "take_profit"
+	}
+	if exitReason == "" {
+		return nil, nil
+	}
+
+	// Execute fill at bar close ± 1bp spread (sells fill below mid).
+	bp := decimal.New(int64(spreadBps), -4)
+	one := decimal.NewFromInt(1)
+	fill := price.Mul(one.Sub(bp))
+
+	qty := pos.Qty
+	realizedDelta := fill.Sub(pos.AvgEntry).Mul(qty)
+	e.totalRealizedPL = e.totalRealizedPL.Add(realizedDelta)
+	pos.RealizedPL = pos.RealizedPL.Add(realizedDelta)
+	pos.Qty = decimal.Zero
+	pos.AvgEntry = decimal.Zero
+	pos.UnrealizedPL = decimal.Zero
+	pos.StopLoss = decimal.Zero
+	pos.TakeProfit = decimal.Zero
+	pos.TrailHigh = decimal.Zero
+	e.cash = e.cash.Add(qty.Mul(fill))
+	now := timex.NowMs()
+	pos.UpdatedMs = now
+
+	orderID := ids.New()
+	evt := TradeLogEvent{
+		OrderID:     orderID,
+		Symbol:      b.Symbol,
+		Side:        domain.SideSell,
+		Qty:         qty,
+		FillPrice:   fill,
+		Cash:        e.cash,
+		RealizedPL:  realizedDelta,
+		TimestampMs: now,
+		ExitReason:  exitReason,
+	}
+	select {
+	case e.events <- evt:
+	default:
+		slog.WarnContext(ctx, "paper event channel full, dropping exit event",
+			"service", "paper",
+			"mode", string(domain.ModePaper),
+			"symbol", string(b.Symbol),
+			"order_id", orderID,
+		)
+	}
+
+	slog.InfoContext(ctx, "paper auto-exit",
+		"service", "paper",
+		"mode", string(domain.ModePaper),
+		"symbol", string(b.Symbol),
+		"reason", exitReason,
+		"qty", qty.String(),
+		"fill_price", fill.String(),
+		"realized_delta", realizedDelta.String(),
+	)
+
+	exitOrder := domain.Order{
+		ID:         orderID,
+		Symbol:     b.Symbol,
+		Side:       domain.SideSell,
+		Type:       domain.OrderTypeMarket,
+		Qty:        qty,
+		Price:      fill,
+		Status:     domain.OrderStatusFilled,
+		Mode:       domain.ModePaper,
+		CreatedMs:  now,
+		UpdatedMs:  now,
+		ExchangeID: "paper-exit-" + exitReason + "-" + orderID,
+	}
+	return []domain.Order{exitOrder}, nil
+}
+
 // Reset clears all positions and restores the initial balance. Existing event
 // subscribers continue receiving on the same channel.
 func (e *Engine) Reset() {
@@ -299,4 +444,7 @@ func (e *Engine) Reset() {
 	e.cash = e.initial
 	e.positions = make(map[domain.Symbol]*domain.Position)
 	e.lastClose = make(map[domain.Symbol]decimal.Decimal)
+	e.totalRealizedPL = decimal.Zero
+	e.dayStartPL = decimal.Zero
+	e.currentDayUTC = timex.NowMs() / 86_400_000
 }
