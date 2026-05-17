@@ -34,7 +34,7 @@ type PositionProvider interface {
 }
 
 // DailyPnLProvider returns the net realized P&L since the start of the current
-// UTC day. Negative means a net loss today. Implemented by paper.Engine.
+// UTC day. Negative means a net loss today.
 type DailyPnLProvider interface {
 	DailyPnL() decimal.Decimal
 }
@@ -161,7 +161,9 @@ func NewPipeline(
 // WithEntryCooldown sets the number of bars to skip new buy entries after any
 // auto-exit (stop-loss or take-profit). Zero disables cooldown.
 func (p *Pipeline) WithEntryCooldown(bars int) *Pipeline {
+	p.mu.Lock()
 	p.cooldownBars = bars
+	p.mu.Unlock()
 	return p
 }
 
@@ -243,6 +245,7 @@ func (p *Pipeline) OnBar(ctx context.Context, b domain.Bar) (domain.Order, error
 		p.cooldownBarsLeft = p.cooldownBars
 	}
 	inCooldown := p.cooldownBarsLeft > 0
+	cooldownRemaining := p.cooldownBarsLeft // capture BEFORE decrement
 	if p.cooldownBarsLeft > 0 {
 		p.cooldownBarsLeft--
 	}
@@ -269,7 +272,7 @@ func (p *Pipeline) OnBar(ctx context.Context, b domain.Bar) (domain.Order, error
 		slog.InfoContext(ctx, "pipeline: buy skipped — entry cooldown active",
 			"service", "runtime",
 			"symbol", string(b.Symbol),
-			"cooldown_bars_left", p.cooldownBarsLeft,
+			"cooldown_bars_left", cooldownRemaining,
 		)
 		return domain.Order{}, nil
 	}

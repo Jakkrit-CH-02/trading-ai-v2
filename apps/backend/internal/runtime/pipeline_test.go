@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -234,12 +235,26 @@ func TestPipeline_DailyPnL_ReadFromEngine(t *testing.T) {
 	}
 }
 
+// alwaysBuyStrategy is a minimal strategy stub that returns a BUY signal on every bar.
+// Each signal gets a unique ID derived from the bar's CloseTime to avoid idempotency replay.
+type alwaysBuyStrategy struct{}
+
+func (a *alwaysBuyStrategy) Name() string { return "always-buy-stub" }
+
+func (a *alwaysBuyStrategy) OnBar(_ context.Context, b domain.Bar) (domain.Signal, error) {
+	return domain.Signal{
+		ID:     fmt.Sprintf("stub-buy-%d", b.CloseTime),
+		Symbol: b.Symbol,
+		Action: domain.SignalActionBuy,
+		Reason: "always-buy-stub",
+	}, nil
+}
+
 // TestPipeline_EntryCooldown_BlocksBuyAfterExit verifies that after a stop-loss
 // auto-exit, the pipeline skips buy signals for the configured cooldown period.
 func TestPipeline_EntryCooldown_BlocksBuyAfterExit(t *testing.T) {
 	ctx := context.Background()
 	eng := paper.NewEngine(decimal.NewFromInt(100_000))
-	strat := strategy.NewEngine(builtin.NewMACross(3, 5))
 	policy := risk.Policy{
 		MaxPositionPct:      decimal.NewFromFloat(0.5),
 		MaxDailyDrawdownPct: decimal.NewFromFloat(0.5),
@@ -250,48 +265,66 @@ func TestPipeline_EntryCooldown_BlocksBuyAfterExit(t *testing.T) {
 	mgr := order.NewManager(order.NewRouter(eng, nil), domain.ModePaper)
 	sizer := FixedFractionSizer(PipelineConfig{
 		PositionFraction: decimal.NewFromFloat(0.10),
-		StopLossFraction: decimal.NewFromFloat(0.001), // 0.1% stop — fires on any small dip
+		StopLossFraction: decimal.NewFromFloat(0.001), // 0.1% stop
 	})
-	pipe := NewPipeline(strat, rsk, mgr, eng, eng, eng, sizer).WithEntryCooldown(5)
 
 	sym := domain.Symbol("BTCUSDT")
-	// Feed climb bars: expect a BUY crossover to open a position.
-	climbBars := fixtureBars(sym)[:10]
-	var buyFired bool
-	for _, b := range climbBars {
-		o, err := pipe.OnBar(ctx, b)
-		require.NoError(t, err)
-		if o.Side == domain.SideBuy && o.ID != "" {
-			buyFired = true
-		}
-	}
-	if !buyFired {
-		t.Skip("no buy on climb fixture — cooldown test inconclusive")
-	}
 
-	// Force a stop-loss via an extreme crash bar.
+	// Open a position manually so we can trigger the stop-loss.
+	// Use the always-buy strategy so we don't depend on EMA convergence.
+	strat := strategy.NewEngine(&alwaysBuyStrategy{})
+	// WithEntryCooldown(6): the crash bar itself consumes one cooldown tick
+	// (exit + decrement happen in the same OnBar), so 6 means 5 subsequent
+	// bars are blocked — matching the loop below.
+	pipe := NewPipeline(strat, rsk, mgr, eng, eng, eng, sizer).WithEntryCooldown(6)
+
+	// Feed one bar so the paper engine has a market price, then the always-buy
+	// strategy fires → a BUY order should be placed.
+	entryBar := domain.Bar{
+		Symbol: sym, Interval: "1m",
+		Close: decimal.NewFromInt(100), High: decimal.NewFromInt(100),
+		Low: decimal.NewFromInt(100), Open: decimal.NewFromInt(100),
+		CloseTime: 1,
+	}
+	buyOrder, err := pipe.OnBar(ctx, entryBar)
+	require.NoError(t, err)
+	require.Equal(t, domain.SideBuy, buyOrder.Side, "always-buy strategy must place a buy on first bar")
+	require.NotEmpty(t, eng.Positions(), "position must be open after buy")
+
+	// Crash price below the stop → CheckExits fires → cooldown starts.
 	crashBar := domain.Bar{
 		Symbol: sym, Interval: "1m",
 		Close: decimal.NewFromInt(1), High: decimal.NewFromInt(1),
 		Low: decimal.NewFromInt(1), Open: decimal.NewFromInt(1),
-		CloseTime: 9999,
+		CloseTime: 2,
 	}
-	_, err := pipe.OnBar(ctx, crashBar)
+	_, err = pipe.OnBar(ctx, crashBar)
 	require.NoError(t, err)
-	require.Empty(t, eng.Positions(), "SL must flatten the position")
+	require.Empty(t, eng.Positions(), "SL must flatten position")
 
-	// For the next 5 bars send a strongly bullish price that would normally
-	// trigger a buy (fast EMA spikes). Verify no new position is opened.
+	// For the next 5 bars the always-buy strategy still fires, but cooldown
+	// must block all of them — no new position should open.
 	for i := 0; i < 5; i++ {
-		highBar := domain.Bar{
+		bullBar := domain.Bar{
 			Symbol: sym, Interval: "1m",
 			Close: decimal.NewFromInt(200), High: decimal.NewFromInt(200),
 			Low: decimal.NewFromInt(195), Open: decimal.NewFromInt(195),
-			CloseTime: int64(10000 + i),
+			CloseTime: int64(3 + i),
 		}
-		o, err := pipe.OnBar(ctx, highBar)
+		o, err := pipe.OnBar(ctx, bullBar)
 		require.NoError(t, err, "cooldown must not surface errors")
-		require.Empty(t, o.ID, "cooldown must block all new buy entries")
-		require.Empty(t, eng.Positions(), "no position should open during cooldown")
+		require.Empty(t, o.ID, "cooldown must block new buy entry on bar %d", i)
+		require.Empty(t, eng.Positions(), "no position during cooldown on bar %d", i)
 	}
+
+	// After cooldown expires (6th bar), the always-buy strategy should fire again.
+	afterCooldownBar := domain.Bar{
+		Symbol: sym, Interval: "1m",
+		Close: decimal.NewFromInt(200), High: decimal.NewFromInt(200),
+		Low: decimal.NewFromInt(195), Open: decimal.NewFromInt(195),
+		CloseTime: 9,
+	}
+	o, err := pipe.OnBar(ctx, afterCooldownBar)
+	require.NoError(t, err)
+	require.NotEmpty(t, o.ID, "after cooldown expires, buy should be allowed again")
 }
