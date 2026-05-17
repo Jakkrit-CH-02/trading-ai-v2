@@ -62,6 +62,7 @@ type RunRequest struct {
 	InitialCash        string            `json:"initial_cash"`
 	PositionFraction   string            `json:"position_fraction"`
 	StopLossPct        string            `json:"stop_loss_pct"`
+	TakeProfitPct      string            `json:"take_profit_pct"`
 	TrailActivationPct string            `json:"trail_activation_pct"`
 	TrailPct           string            `json:"trail_pct"`
 	FromMs             int64             `json:"from_ms"`
@@ -312,6 +313,7 @@ type MultiRunRequest struct {
 	InitialCash        string            `json:"initial_cash"`
 	PositionFraction   string            `json:"position_fraction"`
 	StopLossPct        string            `json:"stop_loss_pct"`
+	TakeProfitPct      string            `json:"take_profit_pct"`
 	TrailActivationPct string            `json:"trail_activation_pct"`
 	TrailPct           string            `json:"trail_pct"`
 	FromMs             int64             `json:"from_ms"`
@@ -344,6 +346,7 @@ func (h *Handler) runMulti(c *fiber.Ctx) error {
 			InitialCash:        req.InitialCash,
 			PositionFraction:   req.PositionFraction,
 			StopLossPct:        req.StopLossPct,
+			TakeProfitPct:      req.TakeProfitPct,
 			TrailActivationPct: req.TrailActivationPct,
 			TrailPct:           req.TrailPct,
 			FromMs:             req.FromMs,
@@ -475,6 +478,10 @@ func (req RunRequest) toConfig() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("trail_pct: %w", err)
 	}
+	tp, err := parseDec(req.TakeProfitPct, decimal.Zero)
+	if err != nil {
+		return Config{}, fmt.Errorf("take_profit_pct: %w", err)
+	}
 	return Config{
 		Symbol:             domain.Symbol(sym),
 		Interval:           interval,
@@ -483,6 +490,7 @@ func (req RunRequest) toConfig() (Config, error) {
 		InitialCash:        cash,
 		PositionFraction:   frac,
 		StopLossPct:        stop,
+		TakeProfitPct:      tp,
 		TrailActivationPct: trailAct,
 		TrailPct:           trail,
 		FromMs:             req.FromMs,

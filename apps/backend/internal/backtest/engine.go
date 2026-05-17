@@ -18,28 +18,32 @@ import (
 
 // Config drives a single backtest run.
 type Config struct {
-	Symbol           domain.Symbol     `json:"symbol"`
-	Interval         string            `json:"interval"`
-	StrategyName     string            `json:"strategy_name"`
-	StrategyParams   map[string]string `json:"strategy_params"`
-	InitialCash      decimal.Decimal   `json:"initial_cash"`
-	PositionFraction decimal.Decimal   `json:"position_fraction"` // 0..1, fraction of equity per buy
-	StopLossPct      decimal.Decimal   `json:"stop_loss_pct"`     // e.g. 0.05 = 5% below entry
-	FromMs           int64             `json:"from_ms,omitempty"`
-	ToMs             int64             `json:"to_ms,omitempty"`
+	Symbol             domain.Symbol     `json:"symbol"`
+	Interval           string            `json:"interval"`
+	StrategyName       string            `json:"strategy_name"`
+	StrategyParams     map[string]string `json:"strategy_params"`
+	InitialCash        decimal.Decimal   `json:"initial_cash"`
+	PositionFraction   decimal.Decimal   `json:"position_fraction"`   // 0..1, fraction of equity per buy
+	StopLossPct        decimal.Decimal   `json:"stop_loss_pct"`        // e.g. 0.05 = 5% below entry
+	TakeProfitPct      decimal.Decimal   `json:"take_profit_pct"`      // zero = disabled
+	TrailActivationPct decimal.Decimal   `json:"trail_activation_pct"` // profit % to activate trailing SL; 0 = disabled
+	TrailPct           decimal.Decimal   `json:"trail_pct"`            // trail distance below high; 0 = disabled
+	FromMs             int64             `json:"from_ms,omitempty"`
+	ToMs               int64             `json:"to_ms,omitempty"`
 }
 
 // Trade is one simulated fill.
 type Trade struct {
-	SignalID    string          `json:"signal_id"`
-	OrderID     string          `json:"order_id"`
-	Symbol      domain.Symbol   `json:"symbol"`
-	Side        domain.Side     `json:"side"`
-	Qty         decimal.Decimal `json:"qty"`
-	Price       decimal.Decimal `json:"price"`
-	RealizedPL  decimal.Decimal `json:"realized_pl"`
-	Reason      string          `json:"reason"`
-	TimestampMs int64           `json:"timestamp_ms"`
+	SignalID      string          `json:"signal_id"`
+	OrderID       string          `json:"order_id"`
+	Symbol        domain.Symbol   `json:"symbol"`
+	Side          domain.Side     `json:"side"`
+	Qty           decimal.Decimal `json:"qty"`
+	Price         decimal.Decimal `json:"price"`
+	StopLossPrice decimal.Decimal `json:"stop_loss_price"` // set on BUY leg; zero on SELL
+	RealizedPL    decimal.Decimal `json:"realized_pl"`
+	Reason        string          `json:"reason"`
+	TimestampMs   int64           `json:"timestamp_ms"`
 }
 
 // EquityPoint is one (time, equity) sample on the equity curve.
@@ -128,13 +132,60 @@ func (e *Engine) Run(ctx context.Context, bars []domain.Bar) (Result, error) {
 	}
 
 	cash := e.cfg.InitialCash
-	var qty, avgEntry decimal.Decimal
+	var qty, avgEntry, stopPrice, trailHigh, takeProfit decimal.Decimal
 	trades := make([]Trade, 0, 8)
 	curve := make([]EquityPoint, 0, len(bars))
+
+	closeLong := func(fillPrice decimal.Decimal, sig domain.Signal, b domain.Bar, reason string) {
+		realized := fillPrice.Sub(avgEntry).Mul(qty)
+		cash = cash.Add(qty.Mul(fillPrice))
+		trades = append(trades, Trade{
+			SignalID:      sig.ID,
+			OrderID:       e.newID(),
+			Symbol:        b.Symbol,
+			Side:          domain.SideSell,
+			Qty:           qty,
+			Price:         fillPrice,
+			StopLossPrice: stopPrice,
+			RealizedPL:    realized,
+			Reason:        reason,
+			TimestampMs:   b.CloseTime,
+		})
+		qty = decimal.Zero
+		avgEntry = decimal.Zero
+		stopPrice = decimal.Zero
+		trailHigh = decimal.Zero
+		takeProfit = decimal.Zero
+	}
 
 	for _, b := range bars {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
+		}
+
+		// Advance trailing stop before exit check.
+		if !qty.IsZero() && e.cfg.TrailPct.IsPositive() && avgEntry.IsPositive() {
+			one := decimal.NewFromInt(1)
+			activation := avgEntry.Mul(one.Add(e.cfg.TrailActivationPct))
+			if b.Close.GreaterThan(activation) {
+				if b.Close.GreaterThan(trailHigh) {
+					trailHigh = b.Close
+				}
+				newSL := trailHigh.Mul(one.Sub(e.cfg.TrailPct))
+				if newSL.GreaterThan(stopPrice) {
+					stopPrice = newSL
+				}
+			}
+		}
+
+		// Take-profit exit: fill at bar close when price reaches the target.
+		if !qty.IsZero() && takeProfit.IsPositive() && b.Close.GreaterThanOrEqual(takeProfit) {
+			closeLong(b.Close, domain.Signal{ID: e.newID()}, b, "take_profit")
+		}
+
+		// Stop-loss exit: fill at stopPrice when bar's low breaches it.
+		if !qty.IsZero() && !stopPrice.IsZero() && b.Low.LessThanOrEqual(stopPrice) {
+			closeLong(stopPrice, domain.Signal{ID: e.newID()}, b, "stop_loss")
 		}
 
 		sig, err := e.strat.OnBar(ctx, b)
@@ -177,38 +228,30 @@ func (e *Engine) Run(ctx context.Context, bars []domain.Bar) (Result, error) {
 			cost := fillQty.Mul(b.Close)
 			cash = cash.Sub(cost)
 			avgEntry = b.Close
+			stopPrice = stop
+			trailHigh = b.Close
 			qty = fillQty
+			if e.cfg.TakeProfitPct.IsPositive() {
+				takeProfit = b.Close.Mul(decimal.NewFromInt(1).Add(e.cfg.TakeProfitPct))
+			}
 			trades = append(trades, Trade{
-				SignalID:    sig.ID,
-				OrderID:     e.newID(),
-				Symbol:      b.Symbol,
-				Side:        domain.SideBuy,
-				Qty:         fillQty,
-				Price:       b.Close,
-				RealizedPL:  decimal.Zero,
-				Reason:      sig.Reason,
-				TimestampMs: b.CloseTime,
+				SignalID:      sig.ID,
+				OrderID:       e.newID(),
+				Symbol:        b.Symbol,
+				Side:          domain.SideBuy,
+				Qty:           fillQty,
+				Price:         b.Close,
+				StopLossPrice: stop,
+				RealizedPL:    decimal.Zero,
+				Reason:        sig.Reason,
+				TimestampMs:   b.CloseTime,
 			})
 
 		case domain.SignalActionSell:
 			if qty.IsZero() {
 				break
 			}
-			realized := b.Close.Sub(avgEntry).Mul(qty)
-			cash = cash.Add(qty.Mul(b.Close))
-			trades = append(trades, Trade{
-				SignalID:    sig.ID,
-				OrderID:     e.newID(),
-				Symbol:      b.Symbol,
-				Side:        domain.SideSell,
-				Qty:         qty,
-				Price:       b.Close,
-				RealizedPL:  realized,
-				Reason:      sig.Reason,
-				TimestampMs: b.CloseTime,
-			})
-			qty = decimal.Zero
-			avgEntry = decimal.Zero
+			closeLong(b.Close, sig, b, sig.Reason)
 		}
 
 		eq := cash.Add(qty.Mul(b.Close))
@@ -224,7 +267,7 @@ func (e *Engine) Run(ctx context.Context, bars []domain.Bar) (Result, error) {
 		BarsProcessed: len(bars),
 		InitialEquity: e.cfg.InitialCash,
 		FinalEquity:   final,
-		Metrics:       computeMetrics(e.cfg.InitialCash, curve, trades),
+		Metrics:       computeMetrics(e.cfg.InitialCash, e.cfg.Interval, curve, trades),
 		EquityCurve:   curve,
 		Trades:        trades,
 		CreatedMs:     e.clock(),
@@ -254,7 +297,7 @@ func filterRange(bars []domain.Bar, fromMs, toMs int64) []domain.Bar {
 // Closed trade = one SELL leg; its RealizedPL is its outcome. WinRate /
 // ProfitFactor are computed only over closed trades. Sharpe is annualized
 // per-bar return (assumes uniform sampling).
-func computeMetrics(initial decimal.Decimal, curve []EquityPoint, trades []Trade) Metrics {
+func computeMetrics(initial decimal.Decimal, interval string, curve []EquityPoint, trades []Trade) Metrics {
 	m := Metrics{}
 	var wins, losses decimal.Decimal
 	for _, t := range trades {
@@ -288,7 +331,7 @@ func computeMetrics(initial decimal.Decimal, curve []EquityPoint, trades []Trade
 		m.TotalReturn = final.Sub(initial).DivRound(initial, 6)
 	}
 	m.MaxDrawdown = maxDrawdown(curve)
-	m.SharpeRatio = sharpe(curve)
+	m.SharpeRatio = sharpe(curve, interval)
 	return m
 }
 
@@ -313,9 +356,40 @@ func maxDrawdown(curve []EquityPoint) decimal.Decimal {
 	return maxDD
 }
 
-// sharpe annualizes the per-bar log-return Sharpe ratio with rf=0. Returns
-// zero when there is insufficient variance / data.
-func sharpe(curve []EquityPoint) decimal.Decimal {
+// barsPerYear returns the number of bars in a calendar year for the given
+// Binance-style interval string (e.g. "1m", "4h", "1d"). Defaults to 365
+// (daily) for unknown intervals.
+func barsPerYear(interval string) float64 {
+	if len(interval) < 2 {
+		return 365
+	}
+	n := 0
+	for _, c := range interval[:len(interval)-1] {
+		if c >= '0' && c <= '9' {
+			n = n*10 + int(c-'0')
+		}
+	}
+	if n <= 0 {
+		return 365
+	}
+	unit := interval[len(interval)-1]
+	const minutesPerYear = 365 * 24 * 60
+	switch unit {
+	case 'm':
+		return float64(minutesPerYear) / float64(n)
+	case 'h':
+		return float64(minutesPerYear/60) / float64(n)
+	case 'd':
+		return 365 / float64(n)
+	default:
+		return 365
+	}
+}
+
+// sharpe annualizes the per-bar Sharpe ratio (rf=0) using the correct
+// bars-per-year factor for the given interval. Returns zero when there is
+// insufficient variance / data.
+func sharpe(curve []EquityPoint, interval string) decimal.Decimal {
 	if len(curve) < 2 {
 		return decimal.Zero
 	}
@@ -345,9 +419,7 @@ func sharpe(curve []EquityPoint) decimal.Decimal {
 	if std == 0 {
 		return decimal.Zero
 	}
-	// Annualize against ~252 trading days; the integration test asserts
-	// only sign/finiteness, so the exact factor is documentation.
-	annual := (mean / std) * math.Sqrt(252)
+	annual := (mean / std) * math.Sqrt(barsPerYear(interval))
 	if math.IsNaN(annual) || math.IsInf(annual, 0) {
 		return decimal.Zero
 	}
