@@ -22,11 +22,15 @@ import (
 )
 
 const (
-	klineInterval    = "1m"
-	initialCashUSDT  = 10_000
-	warmupBars       = 50 // enough to seed EMA slow period (default 21) + crossover detection
-	positionFraction = "0.01"
-	stopLossFraction = "0.02"
+	klineInterval      = "5m"       // was "1m" — 5m reduces noise-driven whipsaws
+	initialCashUSDT    = 10_000
+	warmupBars         = 50 // enough to seed EMA slow period (default 21) + crossover detection
+	positionFraction   = "0.01"
+	stopLossFraction   = "0.03"     // was "0.02" — 3% gives more room vs crypto volatility
+	takeProfitPct      = "0.06"     // new: 6% target = 1:2 risk/reward
+	trailActivationPct = "0.02"     // new: trailing SL activates at +2% profit
+	trailPct           = "0.015"    // new: trailing SL trails 1.5% below the high
+	entryCooldownBars  = 3          // new: skip 3 bars after any stop-loss/TP exit
 )
 
 func main() {
@@ -62,8 +66,11 @@ func main() {
 	riskEngine := risk.NewEngine(policy)
 
 	pipeCfg := runtime.PipelineConfig{
-		PositionFraction: decimal.RequireFromString(positionFraction),
-		StopLossFraction: decimal.RequireFromString(stopLossFraction),
+		PositionFraction:   decimal.RequireFromString(positionFraction),
+		StopLossFraction:   decimal.RequireFromString(stopLossFraction),
+		TakeProfitPct:      decimal.RequireFromString(takeProfitPct),
+		TrailActivationPct: decimal.RequireFromString(trailActivationPct),
+		TrailPct:           decimal.RequireFromString(trailPct),
 	}
 
 	controllers := make([]*runtime.Controller, 0, len(cfg.Symbols))
@@ -93,7 +100,8 @@ func main() {
 		}
 
 		sizer := runtime.FixedFractionSizer(pipeCfg)
-		pipe := runtime.NewPipeline(stratEngine, riskEngine, manager, paperEngine, paperEngine, paperEngine, sizer)
+		pipe := runtime.NewPipeline(stratEngine, riskEngine, manager, paperEngine, paperEngine, paperEngine, sizer).
+			WithEntryCooldown(entryCooldownBars)
 
 		if len(warmBars) > 0 {
 			if err := pipe.Warm(ctx, warmBars); err != nil {

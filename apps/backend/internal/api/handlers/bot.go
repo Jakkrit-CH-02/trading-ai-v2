@@ -10,15 +10,20 @@ import (
 )
 
 type startRequest struct {
-	Mode      string `json:"mode"`
-	Strategy  string `json:"strategy"`
-	Symbol    string `json:"symbol"`
-	Timeframe string `json:"timeframe"`
-	Risk      struct {
+	Mode           string            `json:"mode"`
+	Strategy       string            `json:"strategy"`
+	StrategyParams map[string]string `json:"strategy_params"`
+	Symbol         string            `json:"symbol"`
+	Timeframe      string            `json:"timeframe"`
+	Risk           struct {
 		MaxPositionPct      float64 `json:"max_position_pct"`
 		MaxDailyDrawdownPct float64 `json:"max_daily_drawdown_pct"`
 		MaxSlippageBps      int     `json:"max_slippage_bps"`
+		PositionFraction    float64 `json:"position_fraction"`
 		StopLossFraction    float64 `json:"stop_loss_fraction"`
+		TrailActivationPct  float64 `json:"trail_activation_pct"`
+		TrailPct            float64 `json:"trail_pct"`
+		TakeProfitPct       float64 `json:"take_profit_pct"`
 	} `json:"risk"`
 	Confirmed bool `json:"confirmed,omitempty"`
 }
@@ -60,14 +65,22 @@ func (b *Bot) start(c *fiber.Ctx) error {
 	}
 
 	mgrReq := runtime.StartRequest{
-		Mode:             domain.Mode(req.Mode),
-		Strategy:         req.Strategy,
-		Symbol:           domain.Symbol(req.Symbol),
-		Timeframe:        req.Timeframe,
-		MaxPositionPct:   decimal.NewFromFloat(req.Risk.MaxPositionPct),
-		MaxDailyDrawdown: decimal.NewFromFloat(req.Risk.MaxDailyDrawdownPct),
-		MaxSlippageBps:   req.Risk.MaxSlippageBps,
-		StopLossFraction: decimal.NewFromFloat(req.Risk.StopLossFraction),
+		Mode:               domain.Mode(req.Mode),
+		Strategy:           req.Strategy,
+		StrategyParams:     req.StrategyParams,
+		Symbol:             domain.Symbol(req.Symbol),
+		Timeframe:          req.Timeframe,
+		PositionFraction:   decimal.NewFromFloat(req.Risk.PositionFraction),
+		MaxPositionPct:     decimal.NewFromFloat(req.Risk.MaxPositionPct),
+		MaxDailyDrawdown:   decimal.NewFromFloat(req.Risk.MaxDailyDrawdownPct),
+		MaxSlippageBps:     req.Risk.MaxSlippageBps,
+		StopLossFraction:   decimal.NewFromFloat(req.Risk.StopLossFraction),
+		TrailActivationPct: decimal.NewFromFloat(req.Risk.TrailActivationPct),
+		TrailPct:           decimal.NewFromFloat(req.Risk.TrailPct),
+		TakeProfitPct:      decimal.NewFromFloat(req.Risk.TakeProfitPct),
+	}
+	if mgrReq.PositionFraction.IsZero() {
+		mgrReq.PositionFraction = decimal.NewFromFloat(0.015)
 	}
 	if mgrReq.MaxPositionPct.IsZero() {
 		mgrReq.MaxPositionPct = decimal.NewFromFloat(0.02)
@@ -79,7 +92,19 @@ func (b *Bot) start(c *fiber.Ctx) error {
 		mgrReq.MaxSlippageBps = 30
 	}
 	if mgrReq.StopLossFraction.IsZero() {
-		mgrReq.StopLossFraction = decimal.NewFromFloat(0.05)
+		mgrReq.StopLossFraction = decimal.NewFromFloat(0.03)   // was 0.05
+	}
+	if mgrReq.TakeProfitPct.IsZero() {
+		mgrReq.TakeProfitPct = decimal.NewFromFloat(0.06)      // new: 6% default TP
+	}
+	if mgrReq.TrailActivationPct.IsZero() {
+		mgrReq.TrailActivationPct = decimal.NewFromFloat(0.02) // was 0.01
+	}
+	if mgrReq.TrailPct.IsZero() {
+		mgrReq.TrailPct = decimal.NewFromFloat(0.015)          // unchanged
+	}
+	if mgrReq.EntryCooldownBars == 0 {
+		mgrReq.EntryCooldownBars = 3
 	}
 
 	if err := b.mgr.Start(c.UserContext(), mgrReq); err != nil {

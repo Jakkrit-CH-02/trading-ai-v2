@@ -85,6 +85,7 @@ type StartRequest struct {
 	TrailActivationPct decimal.Decimal // profit % to activate trailing SL (0 = use hard SL only)
 	TrailPct           decimal.Decimal // trail distance below high (0 = no trail)
 	TakeProfitPct      decimal.Decimal // fixed TP % above entry (0 = disabled)
+	EntryCooldownBars  int            // bars to skip after any auto-exit
 }
 
 // Manager owns the lifecycle of a paper-trading session: bar feed, pipeline,
@@ -170,11 +171,12 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) error {
 		TakeProfitPct:      req.TakeProfitPct,
 	})
 
-	pipe := NewPipeline(strategy.NewEngine(strat), rsk, mgr, eng, eng, eng, sizer)
+	pipe := NewPipeline(strategy.NewEngine(strat), rsk, mgr, eng, eng, eng, sizer).
+		WithEntryCooldown(req.EntryCooldownBars)
 
-	// Price feed always uses mainnet regardless of the testnet setting.
-	// Testnet klines are artificial and don't reflect real market prices; paper
-	// fills are simulated locally so no authenticated testnet calls are needed.
+	// Use mainnet REST for both warmup and live bar feed.
+	// Mainnet REST works from Docker (warmup already proved this); WS does not reliably
+	// deliver klines from Docker IPs regardless of mainnet/testnet setting.
 	priceCfg := m.binanceCfg
 	priceCfg.Testnet = false
 	priceCfg.RestBaseURL = ""
@@ -191,23 +193,10 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) error {
 		)
 	}
 	feedCtx, cancelFeed := context.WithCancel(context.Background())
-	bars := binClient.KlineStream(feedCtx, req.Symbol, req.Timeframe)
 
 	// Tee bars to the WS hub before passing to the controller.
 	teedBars := make(chan domain.Bar, 8)
-	go func() {
-		defer close(teedBars)
-		for b := range bars {
-			m.publishBar(b)
-			select {
-			case teedBars <- b:
-			case <-feedCtx.Done():
-				// drain bars so KlineStream's goroutine can finish cleanly
-				for range bars {}
-				return
-			}
-		}
-	}()
+	go m.pollBars(feedCtx, binClient, req.Symbol, req.Timeframe, teedBars)
 
 	ctrl := NewController(pipe, teedBars, req.Mode, req.Symbol).WithFlattener(eng)
 	if err := ctrl.Start(ctx); err != nil {
@@ -485,6 +474,59 @@ func (m *Manager) snapshotEquity(ctx context.Context, eng *paper.Engine) {
 			m.mu.Lock()
 			m.equityCurve = append(m.equityCurve, pt)
 			m.mu.Unlock()
+		}
+	}
+}
+
+// pollBars polls the Binance REST API every ~5 seconds and emits newly-closed
+// bars onto out. It tracks the last-seen close time so each closed candle is
+// emitted exactly once. The goroutine exits and closes out when ctx is done.
+func (m *Manager) pollBars(ctx context.Context, client *binance.Client, sym domain.Symbol, interval string, out chan<- domain.Bar) {
+	defer close(out)
+	var lastCloseMs int64
+	tick := time.NewTicker(5 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		bars, err := client.GetKlines(ctx, binance.KlinesQuery{
+			Symbol:   string(sym),
+			Interval: interval,
+			Limit:    2,
+		})
+		if err != nil {
+			slog.WarnContext(ctx, "runtime: REST poll klines failed",
+				"service", "runtime",
+				"symbol", string(sym),
+				"interval", interval,
+				"err", err.Error(),
+			)
+			continue
+		}
+		// bars[0] = last closed candle, bars[1] = current (open) candle.
+		// We want the most-recently closed bar, which is bars[0] when limit=2.
+		// If the last element's close_time is in the past, it's closed.
+		now := timex.NowMs()
+		for _, b := range bars {
+			if b.CloseTime > lastCloseMs && b.CloseTime < now {
+				lastCloseMs = b.CloseTime
+				slog.InfoContext(ctx, "runtime: REST poll emitted closed bar",
+					"service", "runtime",
+					"symbol", string(sym),
+					"interval", interval,
+					"close_time", b.CloseTime,
+					"close", b.Close.String(),
+				)
+				m.publishBar(b)
+				select {
+				case out <- b:
+				case <-ctx.Done():
+					return
+				}
+			}
 		}
 	}
 }
