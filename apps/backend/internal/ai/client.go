@@ -16,11 +16,21 @@ import (
 // ErrCircuitOpen is returned when the breaker is open.
 var ErrCircuitOpen = errors.New("ai client: circuit open")
 
+// OHLCVBar is a single candle sent to the AI inference service.
+type OHLCVBar struct {
+	OpenTime int64   `json:"open_time"`
+	Open     float64 `json:"open"`
+	High     float64 `json:"high"`
+	Low      float64 `json:"low"`
+	Close    float64 `json:"close"`
+	Volume   float64 `json:"volume"`
+}
+
 // InferenceRequest is sent to the AI inference service.
 type InferenceRequest struct {
-	Symbol   string             `json:"symbol"`
-	Interval string             `json:"interval"`
-	Features map[string]float64 `json:"features"`
+	Symbol   string     `json:"symbol"`
+	Interval string     `json:"interval"`
+	Bars     []OHLCVBar `json:"bars"`
 }
 
 // InferenceResponse is the AI service reply.
