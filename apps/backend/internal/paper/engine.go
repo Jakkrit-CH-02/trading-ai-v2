@@ -184,8 +184,8 @@ func unrealizedPL(pos *domain.Position, mark decimal.Decimal) decimal.Decimal {
 	return mark.Sub(pos.AvgEntry).Mul(pos.Qty)
 }
 
-// clearPositionExits resets all exit-management and side fields to zero.
-func clearPositionExits(pos *domain.Position) {
+// clearPosition resets all position state to zero when a position is fully closed.
+func clearPosition(pos *domain.Position) {
 	pos.Side = ""
 	pos.AvgEntry = decimal.Zero
 	pos.StopLoss = decimal.Zero
@@ -252,7 +252,7 @@ func (e *Engine) Place(ctx context.Context, o domain.Order) (domain.Order, error
 			e.cash = e.cash.Sub(coverCost)
 			pos.Qty = pos.Qty.Sub(o.Qty)
 			if pos.Qty.IsZero() {
-				clearPositionExits(pos)
+				clearPosition(pos)
 			}
 		} else {
 			// Open or add to long.
@@ -288,7 +288,7 @@ func (e *Engine) Place(ctx context.Context, o domain.Order) (domain.Order, error
 			e.cash = e.cash.Add(o.Qty.Mul(fill))
 			pos.Qty = pos.Qty.Sub(o.Qty)
 			if pos.Qty.IsZero() {
-				clearPositionExits(pos)
+				clearPosition(pos)
 			}
 		} else {
 			// Open or add to short: credit cash, track weighted-avg entry.

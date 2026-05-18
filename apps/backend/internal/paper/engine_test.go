@@ -490,6 +490,7 @@ func TestPlace_Cover_RealizesProfitWhenPriceFell(t *testing.T) {
 	eng := NewEngine(dec("100000"))
 	// Short at 100; price falls to 80; cover.
 	seedShort(t, eng, "100", sellOrder("1", "105", "0", "0", "0"))
+	cashAfterOpen := eng.Cash()
 
 	eng.OnBar(bar("80"))
 	buy := domain.Order{Symbol: sym, Side: domain.SideBuy, Type: domain.OrderTypeMarket, Qty: dec("1"), Mode: domain.ModePaper}
@@ -498,8 +499,9 @@ func TestPlace_Cover_RealizesProfitWhenPriceFell(t *testing.T) {
 	<-eng.Events()
 
 	require.Empty(t, eng.Positions(), "position should be flat after cover")
-	// covering at 80 < entry ~99.99 → profit → cash > initial 100000
-	require.True(t, eng.Cash().GreaterThan(dec("100000")), "covering at lower price should leave cash above initial")
+	// covering at 80 < entry ~99.99 → profit → net cash > initial AND less than cashAfterOpen (cover always debits)
+	require.True(t, eng.Cash().LessThan(cashAfterOpen), "cover deducts from post-open cash")
+	require.True(t, eng.Cash().GreaterThan(dec("100000")), "covering at lower price should profit vs initial capital")
 }
 
 func TestPlace_Cover_RealizesLossWhenPriceRose(t *testing.T) {
