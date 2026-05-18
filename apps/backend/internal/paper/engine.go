@@ -239,12 +239,17 @@ func (e *Engine) Place(ctx context.Context, o domain.Order) (domain.Order, error
 					o.Symbol, o.Qty.String(), pos.Qty.String(), ErrInsufficientPosition)
 			}
 			// P&L = (avgEntry - fill) * qty: positive when price fell (profit), negative when rose (loss).
-			// The short-open already credited fill*qty to cash; on cover we adjust cash by the net P&L
-			// so that the full round-trip reflects only the actual profit or loss vs. the entry price.
+			// The short-open already credited qty*fillOpen to cash; on cover we must debit the full
+			// gross cover cost (qty*fillCover). Net round-trip P&L = qty*(fillOpen-fillCover).
+			coverCost := o.Qty.Mul(fill)
+			if coverCost.GreaterThan(e.cash) {
+				return domain.Order{}, fmt.Errorf("symbol=%s cover_cost=%s cash=%s: %w",
+					o.Symbol, coverCost.String(), e.cash.String(), ErrInsufficientCash)
+			}
 			realizedDelta = pos.AvgEntry.Sub(fill).Mul(o.Qty)
 			pos.RealizedPL = pos.RealizedPL.Add(realizedDelta)
 			e.totalRealizedPL = e.totalRealizedPL.Add(realizedDelta)
-			e.cash = e.cash.Add(realizedDelta)
+			e.cash = e.cash.Sub(coverCost)
 			pos.Qty = pos.Qty.Sub(o.Qty)
 			if pos.Qty.IsZero() {
 				clearPositionExits(pos)

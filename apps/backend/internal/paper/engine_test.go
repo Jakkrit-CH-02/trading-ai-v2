@@ -490,7 +490,6 @@ func TestPlace_Cover_RealizesProfitWhenPriceFell(t *testing.T) {
 	eng := NewEngine(dec("100000"))
 	// Short at 100; price falls to 80; cover.
 	seedShort(t, eng, "100", sellOrder("1", "105", "0", "0", "0"))
-	cashAfterOpen := eng.Cash()
 
 	eng.OnBar(bar("80"))
 	buy := domain.Order{Symbol: sym, Side: domain.SideBuy, Type: domain.OrderTypeMarket, Qty: dec("1"), Mode: domain.ModePaper}
@@ -499,8 +498,8 @@ func TestPlace_Cover_RealizesProfitWhenPriceFell(t *testing.T) {
 	<-eng.Events()
 
 	require.Empty(t, eng.Positions(), "position should be flat after cover")
-	// covering at 80 < entry ~99.99 → profit → cash > cashAfterOpen
-	require.True(t, eng.Cash().GreaterThan(cashAfterOpen), "covering at lower price should profit")
+	// covering at 80 < entry ~99.99 → profit → cash > initial 100000
+	require.True(t, eng.Cash().GreaterThan(dec("100000")), "covering at lower price should leave cash above initial")
 }
 
 func TestPlace_Cover_RealizesLossWhenPriceRose(t *testing.T) {
@@ -543,4 +542,33 @@ func TestPlace_Cover_ExceedsQtyReturnsError(t *testing.T) {
 	buy := domain.Order{Symbol: sym, Side: domain.SideBuy, Type: domain.OrderTypeMarket, Qty: dec("5"), Mode: domain.ModePaper}
 	_, err := eng.Place(context.Background(), buy)
 	require.ErrorIs(t, err, ErrInsufficientPosition)
+}
+
+func TestPlace_Cover_CashAccountingIsCorrect(t *testing.T) {
+	eng := NewEngine(dec("100000"))
+	// Short 1 unit at mark=100; fill = 100*(1-0.0001) = 99.99
+	eng.OnBar(bar("100"))
+	o := sellOrder("1", "110", "0", "0", "0")
+	_, err := eng.Place(context.Background(), o)
+	require.NoError(t, err)
+	<-eng.Events()
+
+	fillOpen := dec("99.99")                     // 100*(1-0.0001)
+	cashAfterOpen := dec("100000").Add(fillOpen)  // 100099.99
+	require.True(t, eng.Cash().Equal(cashAfterOpen),
+		"cash after short open should be initial + fill proceeds: got %s want %s",
+		eng.Cash(), cashAfterOpen)
+
+	// Cover at mark=80; fill = 80*(1+0.0001) = 80.008
+	eng.OnBar(bar("80"))
+	buy := domain.Order{Symbol: sym, Side: domain.SideBuy, Type: domain.OrderTypeMarket, Qty: dec("1"), Mode: domain.ModePaper}
+	_, err = eng.Place(context.Background(), buy)
+	require.NoError(t, err)
+	<-eng.Events()
+
+	fillCover := dec("80.008")                          // 80*(1+0.0001)
+	expectedCash := cashAfterOpen.Sub(fillCover)        // 100099.99 - 80.008 = 100019.982
+	require.True(t, eng.Cash().Equal(expectedCash),
+		"cash after cover should be cashAfterOpen - coverCost: got %s want %s",
+		eng.Cash(), expectedCash)
 }
