@@ -9,6 +9,7 @@ from app.api.datasets import router as datasets_router
 from app.api.evaluation import router as evaluation_router
 from app.api.features import router as features_router
 from app.api.models import router as models_router
+from app.api.infer import router as infer_router
 from app.api.predict import router as predict_router
 from app.api.training import router as training_router
 from app.clients.backend import BackendClient
@@ -75,6 +76,7 @@ app.include_router(datasets_router)
 app.include_router(features_router)
 app.include_router(training_router)
 app.include_router(models_router)
+app.include_router(infer_router)
 app.include_router(predict_router)
 app.include_router(evaluation_router)
 
