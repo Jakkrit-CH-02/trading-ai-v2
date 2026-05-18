@@ -175,6 +175,27 @@ func (e *Engine) Positions() []domain.Position {
 	return out
 }
 
+// unrealizedPL computes the mark-to-market P&L for an open position.
+// For longs: (mark - entry) * qty. For shorts: (entry - mark) * qty.
+func unrealizedPL(pos *domain.Position, mark decimal.Decimal) decimal.Decimal {
+	if pos.Side == domain.SideSell {
+		return pos.AvgEntry.Sub(mark).Mul(pos.Qty)
+	}
+	return mark.Sub(pos.AvgEntry).Mul(pos.Qty)
+}
+
+// clearPositionExits resets all exit-management and side fields to zero.
+func clearPositionExits(pos *domain.Position) {
+	pos.Side = ""
+	pos.AvgEntry = decimal.Zero
+	pos.StopLoss = decimal.Zero
+	pos.TakeProfit = decimal.Zero
+	pos.TrailHigh = decimal.Zero
+	pos.TrailLow = decimal.Zero
+	pos.TrailActivationPct = decimal.Zero
+	pos.TrailPct = decimal.Zero
+}
+
 // Place simulates execution of an Order against the latest bar close, applying
 // a 1bp spread and updating cash, position, P&L, and the event channel.
 // Implements order.Executor.
@@ -211,40 +232,82 @@ func (e *Engine) Place(ctx context.Context, o domain.Order) (domain.Order, error
 
 	switch o.Side {
 	case domain.SideBuy:
-		cost := o.Qty.Mul(fill)
-		if cost.GreaterThan(e.cash) {
-			return domain.Order{}, fmt.Errorf("symbol=%s qty=%s cost=%s cash=%s: %w",
-				o.Symbol, o.Qty.String(), cost.String(), e.cash.String(), ErrInsufficientCash)
+		if pos.Side == domain.SideSell && pos.Qty.IsPositive() {
+			// Cover short: buy-to-close.
+			if o.Qty.GreaterThan(pos.Qty) {
+				return domain.Order{}, fmt.Errorf("symbol=%s cover_qty=%s short_qty=%s: %w",
+					o.Symbol, o.Qty.String(), pos.Qty.String(), ErrInsufficientPosition)
+			}
+			// P&L = (avgEntry - fill) * qty: positive when price fell (profit), negative when rose (loss).
+			// The short-open already credited fill*qty to cash; on cover we adjust cash by the net P&L
+			// so that the full round-trip reflects only the actual profit or loss vs. the entry price.
+			realizedDelta = pos.AvgEntry.Sub(fill).Mul(o.Qty)
+			pos.RealizedPL = pos.RealizedPL.Add(realizedDelta)
+			e.totalRealizedPL = e.totalRealizedPL.Add(realizedDelta)
+			e.cash = e.cash.Add(realizedDelta)
+			pos.Qty = pos.Qty.Sub(o.Qty)
+			if pos.Qty.IsZero() {
+				clearPositionExits(pos)
+			}
+		} else {
+			// Open or add to long.
+			cost := o.Qty.Mul(fill)
+			if cost.GreaterThan(e.cash) {
+				return domain.Order{}, fmt.Errorf("symbol=%s qty=%s cost=%s cash=%s: %w",
+					o.Symbol, o.Qty.String(), cost.String(), e.cash.String(), ErrInsufficientCash)
+			}
+			if pos.Qty.IsZero() {
+				pos.Side = domain.SideBuy
+			}
+			newQty := pos.Qty.Add(o.Qty)
+			pos.AvgEntry = pos.AvgEntry.Mul(pos.Qty).Add(fill.Mul(o.Qty)).Div(newQty)
+			pos.Qty = newQty
+			e.cash = e.cash.Sub(cost)
+			pos.StopLoss = o.StopPrice
+			pos.TakeProfit = o.TakeProfit
+			pos.TrailActivationPct = o.TrailActivationPct
+			pos.TrailPct = o.TrailPct
+			pos.TrailHigh = fill
 		}
-		newQty := pos.Qty.Add(o.Qty)
-		// Weighted-average entry: ((avg * qty) + (fill * addQty)) / newQty.
-		pos.AvgEntry = pos.AvgEntry.Mul(pos.Qty).Add(fill.Mul(o.Qty)).Div(newQty)
-		pos.Qty = newQty
-		e.cash = e.cash.Sub(cost)
-		// Set exit management fields from the order.
-		pos.StopLoss = o.StopPrice
-		pos.TakeProfit = o.TakeProfit
-		pos.TrailActivationPct = o.TrailActivationPct
-		pos.TrailPct = o.TrailPct
-		pos.TrailHigh = fill // seed trail high at fill price
 
 	case domain.SideSell:
-		if o.Qty.GreaterThan(pos.Qty) {
-			return domain.Order{}, fmt.Errorf("symbol=%s qty=%s have=%s: %w",
-				o.Symbol, o.Qty.String(), pos.Qty.String(), ErrInsufficientPosition)
-		}
-		realizedDelta = fill.Sub(pos.AvgEntry).Mul(o.Qty)
-		pos.RealizedPL = pos.RealizedPL.Add(realizedDelta)
-		e.totalRealizedPL = e.totalRealizedPL.Add(realizedDelta)
-		pos.Qty = pos.Qty.Sub(o.Qty)
-		e.cash = e.cash.Add(o.Qty.Mul(fill))
-		if pos.Qty.IsZero() {
-			pos.AvgEntry = decimal.Zero
+		if pos.Side == domain.SideBuy && pos.Qty.IsPositive() {
+			// Reduce or close long.
+			if o.Qty.GreaterThan(pos.Qty) {
+				return domain.Order{}, fmt.Errorf("symbol=%s qty=%s have=%s: %w",
+					o.Symbol, o.Qty.String(), pos.Qty.String(), ErrInsufficientPosition)
+			}
+			realizedDelta = fill.Sub(pos.AvgEntry).Mul(o.Qty)
+			pos.RealizedPL = pos.RealizedPL.Add(realizedDelta)
+			e.totalRealizedPL = e.totalRealizedPL.Add(realizedDelta)
+			e.cash = e.cash.Add(o.Qty.Mul(fill))
+			pos.Qty = pos.Qty.Sub(o.Qty)
+			if pos.Qty.IsZero() {
+				clearPositionExits(pos)
+			}
+		} else {
+			// Open or add to short: credit cash, track weighted-avg entry.
+			if pos.Qty.IsZero() {
+				pos.Side = domain.SideSell
+				pos.AvgEntry = fill
+				pos.Qty = o.Qty
+				pos.TrailLow = fill
+			} else {
+				// Add to existing short.
+				newQty := pos.Qty.Add(o.Qty)
+				pos.AvgEntry = pos.AvgEntry.Mul(pos.Qty).Add(fill.Mul(o.Qty)).Div(newQty)
+				pos.Qty = newQty
+			}
+			e.cash = e.cash.Add(o.Qty.Mul(fill))
+			pos.StopLoss = o.StopPrice
+			pos.TakeProfit = o.TakeProfit
+			pos.TrailActivationPct = o.TrailActivationPct
+			pos.TrailPct = o.TrailPct
 		}
 	}
 
 	if !pos.Qty.IsZero() {
-		pos.UnrealizedPL = mark.Sub(pos.AvgEntry).Mul(pos.Qty)
+		pos.UnrealizedPL = unrealizedPL(pos, mark)
 	} else {
 		pos.UnrealizedPL = decimal.Zero
 	}

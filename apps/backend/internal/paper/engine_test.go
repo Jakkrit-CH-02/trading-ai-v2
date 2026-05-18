@@ -435,3 +435,112 @@ func TestEngine_DailyPnL_NegativeOnLosingDay(t *testing.T) {
 	require.True(t, eng.DailyPnL().IsNegative(),
 		"selling below entry → daily PnL must be negative, got %s", eng.DailyPnL())
 }
+
+// ---- Short selling: Place ---------------------------------------------------
+
+func sellOrder(qty, stopPrice, takeProfit, trailActivation, trailPct string) domain.Order {
+	return domain.Order{
+		Symbol:             sym,
+		Side:               domain.SideSell,
+		Type:               domain.OrderTypeMarket,
+		Qty:                dec(qty),
+		StopPrice:          dec(stopPrice),
+		TakeProfit:         dec(takeProfit),
+		TrailActivationPct: dec(trailActivation),
+		TrailPct:           dec(trailPct),
+		Mode:               domain.ModePaper,
+	}
+}
+
+// seedShort opens a short after calling OnBar at price, drains the fill event.
+func seedShort(t *testing.T, eng *Engine, price string, o domain.Order) {
+	t.Helper()
+	eng.OnBar(bar(price))
+	_, err := eng.Place(context.Background(), o)
+	require.NoError(t, err)
+	<-eng.Events() // drain fill event
+}
+
+func TestPlace_Short_CreditsCash(t *testing.T) {
+	eng := NewEngine(dec("100000"))
+	eng.OnBar(bar("50000"))
+	o := sellOrder("1", "52000", "0", "0", "0") // SL above entry for shorts
+	initialCash := eng.Cash()
+	_, err := eng.Place(context.Background(), o)
+	require.NoError(t, err)
+	// fill = 50000 * (1 - 0.0001) = 49995; cash increases
+	require.True(t, eng.Cash().GreaterThan(initialCash), "opening short must credit cash")
+}
+
+func TestPlace_Short_SetsPositionFields(t *testing.T) {
+	eng := NewEngine(dec("100000"))
+	seedShort(t, eng, "100", sellOrder("2", "105", "85", "0.01", "0.015"))
+
+	positions := eng.Positions()
+	require.Len(t, positions, 1)
+	p := positions[0]
+	require.Equal(t, domain.SideSell, p.Side)
+	require.True(t, p.Qty.Equal(dec("2")))
+	require.True(t, p.StopLoss.Equal(dec("105")))
+	require.True(t, p.TakeProfit.Equal(dec("85")))
+	require.True(t, p.TrailLow.IsPositive(), "TrailLow should be seeded at fill price")
+}
+
+func TestPlace_Cover_RealizesProfitWhenPriceFell(t *testing.T) {
+	eng := NewEngine(dec("100000"))
+	// Short at 100; price falls to 80; cover.
+	seedShort(t, eng, "100", sellOrder("1", "105", "0", "0", "0"))
+	cashAfterOpen := eng.Cash()
+
+	eng.OnBar(bar("80"))
+	buy := domain.Order{Symbol: sym, Side: domain.SideBuy, Type: domain.OrderTypeMarket, Qty: dec("1"), Mode: domain.ModePaper}
+	_, err := eng.Place(context.Background(), buy)
+	require.NoError(t, err)
+	<-eng.Events()
+
+	require.Empty(t, eng.Positions(), "position should be flat after cover")
+	// covering at 80 < entry ~99.99 → profit → cash > cashAfterOpen
+	require.True(t, eng.Cash().GreaterThan(cashAfterOpen), "covering at lower price should profit")
+}
+
+func TestPlace_Cover_RealizesLossWhenPriceRose(t *testing.T) {
+	eng := NewEngine(dec("100000"))
+	// Short at 100; price rises to 120; cover at a loss.
+	seedShort(t, eng, "100", sellOrder("1", "110", "0", "0", "0"))
+	cashAfterOpen := eng.Cash()
+
+	eng.OnBar(bar("120"))
+	buy := domain.Order{Symbol: sym, Side: domain.SideBuy, Type: domain.OrderTypeMarket, Qty: dec("1"), Mode: domain.ModePaper}
+	_, err := eng.Place(context.Background(), buy)
+	require.NoError(t, err)
+	<-eng.Events()
+
+	require.Empty(t, eng.Positions())
+	require.True(t, eng.Cash().LessThan(cashAfterOpen), "covering at higher price should lose")
+}
+
+func TestPlace_Cover_PartialLeavesShortOpen(t *testing.T) {
+	eng := NewEngine(dec("100000"))
+	seedShort(t, eng, "100", sellOrder("3", "110", "0", "0", "0"))
+
+	eng.OnBar(bar("90"))
+	buy := domain.Order{Symbol: sym, Side: domain.SideBuy, Type: domain.OrderTypeMarket, Qty: dec("1"), Mode: domain.ModePaper}
+	_, err := eng.Place(context.Background(), buy)
+	require.NoError(t, err)
+	<-eng.Events()
+
+	positions := eng.Positions()
+	require.Len(t, positions, 1)
+	require.True(t, positions[0].Qty.Equal(dec("2")), "2 of 3 still short")
+	require.Equal(t, domain.SideSell, positions[0].Side)
+}
+
+func TestPlace_Cover_ExceedsQtyReturnsError(t *testing.T) {
+	eng := NewEngine(dec("100000"))
+	seedShort(t, eng, "100", sellOrder("1", "110", "0", "0", "0"))
+
+	eng.OnBar(bar("90"))
+	buy := domain.Order{Symbol: sym, Side: domain.SideBuy, Type: domain.OrderTypeMarket, Qty: dec("5"), Mode: domain.ModePaper}
+	_, err := eng.Place(context.Background(), buy)
+	require.ErrorIs(t, err, ErrInsufficientPosition)
+}
