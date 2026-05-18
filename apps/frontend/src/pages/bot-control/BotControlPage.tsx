@@ -12,7 +12,7 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Controller, useForm, type Resolver } from "react-hook-form";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   StartRequestSchema,
   getBotStatus,
@@ -31,6 +31,13 @@ import ModeSelector from "./ModeSelector";
 import StrategyPicker from "./StrategyPicker";
 import SymbolTimeframePicker from "./SymbolTimeframePicker";
 import RiskFormFields from "./RiskFormFields";
+import StrategyParamFields from "./StrategyParamFields";
+
+const STRATEGY_PARAM_DEFAULTS: Record<string, Record<string, string>> = {
+  ma_cross: { fast: "9", slow: "21" },
+  rsi: { period: "14", oversold: "30", overbought: "70" },
+  ai: {},
+};
 
 const STATUS_REFETCH_MS = 2000;
 
@@ -67,6 +74,7 @@ const DEFAULTS: StartRequest = {
     trail_pct: 0.015,
     take_profit_pct: 0.06,
   },
+  strategy_params: { fast: "9", slow: "21" },
 };
 
 const zodResolver: Resolver<StartRequest> = async (values) => {
@@ -175,12 +183,19 @@ export default function BotControlPage() {
     control,
     register,
     handleSubmit,
+    watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<StartRequest>({
     defaultValues: DEFAULTS,
     resolver: zodResolver,
     mode: "onSubmit",
   });
+
+  const selectedStrategy = watch("strategy");
+  useEffect(() => {
+    setValue("strategy_params", STRATEGY_PARAM_DEFAULTS[selectedStrategy] ?? {});
+  }, [selectedStrategy, setValue]);
 
   const startM = useMutation({
     mutationFn: startBot,
@@ -383,6 +398,14 @@ export default function BotControlPage() {
                 )}
               />
             </Box>
+
+            <Divider sx={{ my: 1 }}>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                STRATEGY PARAMS
+              </Typography>
+            </Divider>
+
+            <StrategyParamFields strategy={selectedStrategy} control={control} />
 
             <Controller
               name="symbol"

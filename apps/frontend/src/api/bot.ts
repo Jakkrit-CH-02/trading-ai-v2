@@ -36,8 +36,13 @@ export const StartRequestSchema = z.object({
     max_position_pct: z.number().positive().max(1),
     max_daily_drawdown_pct: z.number().positive().max(1),
     max_slippage_bps: z.number().int().nonnegative().max(10_000),
+    position_fraction: z.number().positive().max(1),
     stop_loss_fraction: z.number().positive().max(1),
+    trail_activation_pct: z.number().nonnegative().max(1),
+    trail_pct: z.number().nonnegative().max(1),
+    take_profit_pct: z.number().nonnegative().max(1),
   }),
+  strategy_params: z.record(z.string()).default({}),
   confirmed: z.boolean().optional(),
 });
 export type StartRequest = z.infer<typeof StartRequestSchema>;
