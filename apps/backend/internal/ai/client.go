@@ -40,6 +40,15 @@ type InferenceResponse struct {
 	ModelVersion string  `json:"model_version"`
 }
 
+// inferEnvelope wraps the AI service's standard response envelope.
+type inferEnvelope struct {
+	Data  InferenceResponse `json:"data"`
+	Error *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
 // Inferer is the minimum interface strategies need.
 type Inferer interface {
 	Infer(ctx context.Context, req InferenceRequest) (InferenceResponse, error)
@@ -150,11 +159,14 @@ func (c *Client) do(ctx context.Context, url string, body []byte) (InferenceResp
 		return InferenceResponse{}, fmt.Errorf("client status %d: %s", resp.StatusCode, string(raw))
 	}
 
-	var out InferenceResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	var env inferEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
 		return InferenceResponse{}, fmt.Errorf("decode: %w", err)
 	}
-	return out, nil
+	if env.Error != nil {
+		return InferenceResponse{}, fmt.Errorf("ai service error %s: %s", env.Error.Code, env.Error.Message)
+	}
+	return env.Data, nil
 }
 
 // breaker is a small consecutive-failure circuit breaker.
