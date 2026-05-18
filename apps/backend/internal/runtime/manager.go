@@ -551,7 +551,25 @@ func buildStrategy(name string, params map[string]string) (strategy.Strategy, er
 		}
 		return builtin.NewMACross(fast, slow), nil
 	case "rsi", "rsi_(14)":
-		return builtin.NewRSI(14, decimal.NewFromInt(30), decimal.NewFromInt(70)), nil
+		period := 14
+		if v, ok := params["period"]; ok {
+			if n, err := strconv.Atoi(v); err == nil && n > 1 {
+				period = n
+			}
+		}
+		oversold := decimal.NewFromInt(30)
+		if v, ok := params["oversold"]; ok {
+			if d, err := decimal.NewFromString(v); err == nil && d.IsPositive() {
+				oversold = d
+			}
+		}
+		overbought := decimal.NewFromInt(70)
+		if v, ok := params["overbought"]; ok {
+			if d, err := decimal.NewFromString(v); err == nil && d.IsPositive() {
+				overbought = d
+			}
+		}
+		return builtin.NewRSI(period, oversold, overbought), nil
 	default:
 		return nil, fmt.Errorf("runtime: unknown strategy %q", name)
 	}
