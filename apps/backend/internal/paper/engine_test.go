@@ -555,8 +555,8 @@ func TestPlace_Cover_CashAccountingIsCorrect(t *testing.T) {
 	require.NoError(t, err)
 	<-eng.Events()
 
-	fillOpen := dec("99.99")                     // 100*(1-0.0001)
-	cashAfterOpen := dec("100000").Add(fillOpen)  // 100099.99
+	fillOpen := dec("99.99")                    // 100*(1-0.0001)
+	cashAfterOpen := dec("100000").Add(fillOpen) // 100099.99
 	require.True(t, eng.Cash().Equal(cashAfterOpen),
 		"cash after short open should be initial + fill proceeds: got %s want %s",
 		eng.Cash(), cashAfterOpen)
@@ -568,9 +568,81 @@ func TestPlace_Cover_CashAccountingIsCorrect(t *testing.T) {
 	require.NoError(t, err)
 	<-eng.Events()
 
-	fillCover := dec("80.008")                          // 80*(1+0.0001)
-	expectedCash := cashAfterOpen.Sub(fillCover)        // 100099.99 - 80.008 = 100019.982
+	fillCover := dec("80.008")                   // 80*(1+0.0001)
+	expectedCash := cashAfterOpen.Sub(fillCover) // 100099.99 - 80.008 = 100019.982
 	require.True(t, eng.Cash().Equal(expectedCash),
 		"cash after cover should be cashAfterOpen - coverCost: got %s want %s",
 		eng.Cash(), expectedCash)
+}
+
+// ---- Short trail: OnBar -----------------------------------------------------
+
+func TestOnBar_Short_TrailActivates_SLRatchetsDown(t *testing.T) {
+	eng := NewEngine(dec("100000"))
+	// Short at 100; trail activates at -1% (99); trail distance 2%.
+	seedShort(t, eng, "100", sellOrder("1", "105", "0", "0.01", "0.02"))
+	initialSL := eng.Positions()[0].StopLoss // = 105 (hard SL above entry)
+
+	// Price drops to 98 (below activation at 99). Trail should kick in.
+	// newSL = 98 * (1 + 0.02) = 99.96, which is < 105, so SL should decrease.
+	eng.OnBar(bar("98"))
+	p := eng.Positions()[0]
+	require.True(t, p.StopLoss.LessThan(initialSL),
+		"trailing SL should fall below hard SL after activation: got %s", p.StopLoss)
+
+	// Price drops further to 90. SL should ratchet down further.
+	eng.OnBar(bar("90"))
+	sl90 := eng.Positions()[0].StopLoss
+	// newSL = 90 * (1 + 0.02) = 91.8
+	expected90 := dec("91.8")
+	require.True(t, sl90.LessThanOrEqual(expected90),
+		"SL should trail to ~%s, got %s", expected90, sl90)
+
+	// Price bounces back to 92 (still below SL 91.8 + eps). SL must NOT increase.
+	eng.OnBar(bar("92"))
+	slAfterBounce := eng.Positions()[0].StopLoss
+	require.True(t, slAfterBounce.Equal(sl90),
+		"SL must not increase on bounce for shorts: was %s, now %s", sl90, slAfterBounce)
+}
+
+func TestOnBar_Short_TrailDoesNotActivateBeforeThreshold(t *testing.T) {
+	eng := NewEngine(dec("100000"))
+	// Trail activates at -5% (95).
+	seedShort(t, eng, "100", sellOrder("1", "110", "0", "0.05", "0.02"))
+	initialSL := eng.Positions()[0].StopLoss
+
+	// Price drops to 96 — above the activation level (95 = 100*(1-0.05)).
+	eng.OnBar(bar("96"))
+	require.True(t, eng.Positions()[0].StopLoss.Equal(initialSL),
+		"SL must not change before activation threshold")
+}
+
+// ---- Equity with short positions --------------------------------------------
+
+func TestEquity_ShortPosition_ReflectsUnrealizedGain(t *testing.T) {
+	eng := NewEngine(dec("100000"))
+	// Short 1 unit at 100.
+	seedShort(t, eng, "100", sellOrder("1", "110", "0", "0", "0"))
+	cashAfterOpen := eng.Cash() // cash > 100000 (received proceeds)
+
+	// Price drops to 80 — unrealized profit for short.
+	eng.OnBar(bar("80"))
+	equity := eng.Equity()
+	// Equity = cash + (entry - mark) * qty
+	//        = cashAfterOpen + (fill ~99.99 - 80) * 1 ≈ cashAfterOpen + ~19.99
+	require.True(t, equity.GreaterThan(cashAfterOpen),
+		"equity should exceed cash alone when short is profitable: equity=%s cash=%s", equity, cashAfterOpen)
+}
+
+func TestEquity_ShortPosition_ReflectsUnrealizedLoss(t *testing.T) {
+	eng := NewEngine(dec("100000"))
+	seedShort(t, eng, "100", sellOrder("1", "110", "0", "0", "0"))
+	cashAfterOpen := eng.Cash()
+
+	// Price rises to 120 — unrealized loss for short.
+	eng.OnBar(bar("120"))
+	equity := eng.Equity()
+	// Equity = cash + (fill ~99.99 - 120) * 1 = cash - ~20.01
+	require.True(t, equity.LessThan(cashAfterOpen),
+		"equity should be less than cash when short is losing: equity=%s cash=%s", equity, cashAfterOpen)
 }

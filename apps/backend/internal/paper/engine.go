@@ -103,20 +103,35 @@ func (e *Engine) OnBar(b domain.Bar) {
 	if !ok || p.Qty.IsZero() {
 		return
 	}
-	p.UnrealizedPL = b.Close.Sub(p.AvgEntry).Mul(p.Qty)
+	p.UnrealizedPL = unrealizedPL(p, b.Close)
 	p.UpdatedMs = b.CloseTime
 
-	// Advance trail: once price exceeds entry * (1 + activation%), raise SL.
+	// Advance trail: side-aware trailing stop logic.
 	if p.TrailPct.IsPositive() && p.AvgEntry.IsPositive() {
 		one := decimal.NewFromInt(1)
-		activation := p.AvgEntry.Mul(one.Add(p.TrailActivationPct))
-		if b.Close.GreaterThan(activation) {
-			if b.Close.GreaterThan(p.TrailHigh) {
-				p.TrailHigh = b.Close
+		if p.Side == domain.SideSell {
+			// Short trail: activate when price falls below entry*(1-activationPct).
+			activation := p.AvgEntry.Mul(one.Sub(p.TrailActivationPct))
+			if b.Close.LessThan(activation) {
+				if p.TrailLow.IsZero() || b.Close.LessThan(p.TrailLow) {
+					p.TrailLow = b.Close
+				}
+				newSL := p.TrailLow.Mul(one.Add(p.TrailPct))
+				if p.StopLoss.IsZero() || newSL.LessThan(p.StopLoss) {
+					p.StopLoss = newSL
+				}
 			}
-			newSL := p.TrailHigh.Mul(one.Sub(p.TrailPct))
-			if newSL.GreaterThan(p.StopLoss) {
-				p.StopLoss = newSL
+		} else {
+			// Long trail: activate when price rises above entry*(1+activationPct).
+			activation := p.AvgEntry.Mul(one.Add(p.TrailActivationPct))
+			if b.Close.GreaterThan(activation) {
+				if b.Close.GreaterThan(p.TrailHigh) {
+					p.TrailHigh = b.Close
+				}
+				newSL := p.TrailHigh.Mul(one.Sub(p.TrailPct))
+				if newSL.GreaterThan(p.StopLoss) {
+					p.StopLoss = newSL
+				}
 			}
 		}
 	}
@@ -156,7 +171,13 @@ func (e *Engine) Equity() decimal.Decimal {
 		if !ok {
 			px = p.AvgEntry
 		}
-		eq = eq.Add(p.Qty.Mul(px))
+		if p.Side == domain.SideSell {
+			// Short: cash already holds the sale proceeds.
+			// Add only the unrealized component: (entry - mark) * qty.
+			eq = eq.Add(p.AvgEntry.Sub(px).Mul(p.Qty))
+		} else {
+			eq = eq.Add(p.Qty.Mul(px))
+		}
 	}
 	return eq
 }
