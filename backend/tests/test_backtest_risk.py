@@ -33,6 +33,21 @@ def test_trades_the_risk_engine_would_refuse_are_recorded_with_the_reason() -> N
     assert "NO_TARGET" in r.signals[0].reason and "risk engine" in r.signals[0].reason
 
 
+def test_rr_target_lets_a_trailing_only_signal_pass_without_creating_an_exit() -> None:
+    from dataclasses import replace
+
+    f = feats([FLAT, FLAT, FLAT, FLAT])
+    base = sig(f, 0, stop=98)  # entry 100, risk 2, no tp1
+    with_ref = replace(base, rr_target=D(106))  # 3R reference: passes the R:R rule
+    r = run_backtest(Stub({0: with_ref}), f, cfg())
+    assert r.signals[0].decision == Decision.TAKEN
+    [t] = r.trades
+    assert t.exit_reason == "range_end"  # no tp1 exit was triggered by the reference target
+    weak = replace(base, rr_target=D(101))  # R:R far below 1.5: still refused
+    r2 = run_backtest(Stub({0: weak}), f, cfg())
+    assert r2.trades == [] and "RR_TOO_LOW" in r2.signals[0].reason
+
+
 def test_costs_make_a_1_5r_target_fail_the_after_cost_rr_rule() -> None:
     """SPEC 2.2 sets S1's TP1 at 1.5R; SPEC 3.5 demands R:R >= 1.5 after fees. Both cannot hold.
 

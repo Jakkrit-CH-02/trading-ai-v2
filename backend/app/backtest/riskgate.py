@@ -73,7 +73,7 @@ class RiskGate:
             entry=fill,
             stop=sig.stop,
             strategy=sig.strategy,
-            tp1=sig.tp1,
+            tp1=sig.tp1 if sig.tp1 is not None else sig.rr_target,
             size_factor=size_factor,
         )
         return self.engine.evaluate(intent, portfolio, market, self.filters)

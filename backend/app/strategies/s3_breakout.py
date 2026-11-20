@@ -78,6 +78,8 @@ class S3Breakout:
             bar_time=f.time(i),
             entry=dec(close),
             stop=dec(stop),
+            # measured move: the channel's height projected from the broken level
+            rr_target=dec(close + (up - lo)),
             trail=TrailSpec(p.trail_mult, p.atr_period, after_tp1=False),
             false_breakout=(dec(up), p.false_breakout_bars),
             s_tech=s_tech_score([bool(x) for x in factors]),

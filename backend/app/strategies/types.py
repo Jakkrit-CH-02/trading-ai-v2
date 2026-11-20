@@ -36,6 +36,9 @@ class Signal:
     stop: Decimal
     s_tech: float  # 0..100, see scoring.py
     tp1: Decimal | None = None
+    # Reference target used ONLY for the Risk Engine's R:R check; it triggers no exit. For
+    # trailing-only strategies (S3) whose exit is the trail, not a limit order.
+    rr_target: Decimal | None = None
     tp1_close_fraction: Decimal = Decimal("0.5")  # 1 => tp1 is the full target (S2)
     trail: TrailSpec | None = None
     time_stop_bars: int | None = None

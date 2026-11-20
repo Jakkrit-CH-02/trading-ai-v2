@@ -4,6 +4,7 @@ Phase 2; kill in Phase 3/7)."""
 import argparse
 import asyncio
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from app.core.config import get_settings
 from app.core.db import make_engine, make_session_factory
@@ -64,6 +65,8 @@ async def backtest(args: argparse.Namespace) -> int:
     end = datetime.now(UTC)
     start = end - timedelta(days=int(args.years * 365.25))
     engine = make_engine()
+    if args.symbols:
+        return await _pooled(args, cfg, start, end, engine)
     try:
         store = PgCandleStore(make_session_factory(engine))
         data = await load_market_frames(store, args.symbol, start, end)
@@ -106,6 +109,48 @@ async def backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _pooled(
+    args: argparse.Namespace, cfg: Any, start: datetime, end: datetime, engine: Any
+) -> int:
+    from app.backtest.data import load_market_frames
+    from app.backtest.metrics import evaluate_gate1
+    from app.backtest.montecarlo import monte_carlo
+    from app.backtest.report import format_gate, format_metrics, format_monte_carlo
+    from app.backtest.walkforward import pool_walk_forward, walk_forward
+
+    grid: dict[str, list[float | int]] = {}
+    for item in args.grid or []:
+        key, _, values = item.partition("=")
+        grid[key] = [float(v) if "." in v else int(v) for v in values.split(",")]
+    results = []
+    try:
+        store = PgCandleStore(make_session_factory(engine))
+        print(f"{args.strategy} pooled over {', '.join(args.symbols)}  (equal weight)")
+        for sym in args.symbols:
+            try:
+                data = await load_market_frames(store, sym, start, end)
+                wf = walk_forward(args.strategy, data, grid, cfg)
+            except ValueError as e:
+                print(f"  {sym}: skipped ({e})")
+                continue
+            m = wf.oos_metrics
+            print(
+                f"  {sym:<9} trades {m.n_trades:>3}  PF {m.profit_factor:5.2f}  "
+                f"expectancy {m.expectancy_r:+.2f}R  net {m.net_pnl:+.0f}"
+            )
+            results.append(wf)
+    finally:
+        await engine.dispose()
+    if not results:
+        return 1
+    trades, _equity, metrics = pool_walk_forward(results, float(cfg.initial_equity))
+    print("\n  POOLED OUT-OF-SAMPLE — the only numbers that count:")
+    print(format_metrics(metrics))
+    print(format_gate(evaluate_gate1(metrics)))
+    print(format_monte_carlo(monte_carlo(trades)))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="softtrade")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -117,6 +162,9 @@ def main(argv: list[str] | None = None) -> int:
     bt = sub.add_parser("backtest", help="event-driven backtest on stored candles")
     bt.add_argument("--strategy", required=True, choices=["s1", "s2", "s3", "s4"])
     bt.add_argument("--symbol", default="BTCUSDT")
+    bt.add_argument(
+        "--symbols", nargs="+", help="pooled equal-weight walk-forward over these symbols"
+    )
     bt.add_argument("--years", type=float, default=3.0)
     bt.add_argument("--fee", type=float, default=0.001, help="taker fee per fill")
     bt.add_argument("--slippage", type=float, default=0.0005, help="per side")

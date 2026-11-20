@@ -185,7 +185,10 @@ def test_s3_with_spec_defaults_requires_trend_up_regime() -> None:
     for s in wide.values():
         assert s.false_breakout is not None and s.false_breakout[1] == 3
         assert s.trail is not None and s.trail.mult == 2.5 and s.trail.after_tp1 is False
-        assert s.stop < s.entry and s.tp1 is None
+        assert s.stop < s.entry and s.tp1 is None  # trailing-only: no limit-order exit
+        # measured move (channel height above entry) is a reference for the R:R check only
+        assert s.rr_target is not None and s.rr_target > s.entry
+        assert s.reasons["donchian_upper"] > 0
 
 
 def test_btc_downtrend_blocks_altcoin_longs() -> None:
