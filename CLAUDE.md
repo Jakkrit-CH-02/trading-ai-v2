@@ -28,4 +28,5 @@
 - Frontend: `cd frontend && npm run dev` · `npm run lint && npm test`
 - Migration: `cd backend && uv run alembic revision --autogenerate -m "..."` · `uv run alembic upgrade head`
 - Backfill: `cd backend && uv run softtrade backfill --symbols BTCUSDT --intervals 1h 4h --days 30` (ข้อมูล public ไม่ต้องมี key; รันซ้ำได้)
+- Backtest: `cd backend && uv run softtrade backtest --strategy s1 --symbol BTCUSDT --years 3` · เพิ่ม `--walk-forward --grid tp1_r=1.2,1.5` เพื่อดูผล out-of-sample (ต้อง backfill ก่อน และข้อมูล < 3 ปีจะไม่ผ่าน gate 1)
 - Test ที่ใช้ DB จริง: ตั้ง `TEST_DATABASE_URL=postgresql+asyncpg://...` (ไม่ตั้ง = ข้าม) DB นั้นถูก downgrade/upgrade ทุกครั้ง ห้ามชี้ไปที่ DB จริง

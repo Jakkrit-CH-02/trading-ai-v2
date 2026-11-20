@@ -24,6 +24,9 @@ class CandleStore(Protocol):
     async def save(self, klines: Sequence[Kline]) -> int:
         """Idempotently store closed candles; returns rows newly inserted."""
 
+    async def load(self, symbol: str, interval: str, start: datetime, end: datetime) -> list[Kline]:
+        """Closed candles in [start, end], ascending by open_time."""
+
 
 class InMemoryCandleStore:
     def __init__(self) -> None:
@@ -44,6 +47,14 @@ class InMemoryCandleStore:
                 self.rows[key] = k
                 new += 1
         return new
+
+    async def load(self, symbol: str, interval: str, start: datetime, end: datetime) -> list[Kline]:
+        rows = [
+            k
+            for (s, i, t), k in self.rows.items()
+            if s == symbol and i == interval and start <= t <= end
+        ]
+        return sorted(rows, key=lambda k: k.open_time)
 
 
 class PgCandleStore:
@@ -92,3 +103,33 @@ class PgCandleStore:
                 )
                 inserted += len((await session.execute(stmt)).all())
         return inserted
+
+    async def load(self, symbol: str, interval: str, start: datetime, end: datetime) -> list[Kline]:
+        stmt = (
+            select(Candle)
+            .where(
+                Candle.symbol == symbol,
+                Candle.interval == interval,
+                Candle.open_time >= start,
+                Candle.open_time <= end,
+            )
+            .order_by(Candle.open_time)
+        )
+        async with self._factory() as session:
+            rows = (await session.scalars(stmt)).all()
+        return [
+            Kline(
+                symbol=r.symbol,
+                interval=r.interval,
+                open_time=r.open_time,
+                o=r.o,
+                h=r.h,
+                l=r.l,
+                c=r.c,
+                v=r.v,
+                quote_v=r.quote_v,
+                trades=r.trades,
+                taker_buy_v=r.taker_buy_v,
+            )
+            for r in rows
+        ]

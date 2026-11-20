@@ -29,6 +29,7 @@ def klines_to_frame(klines: Sequence[Kline]) -> pd.DataFrame:
             "low": [float(k.l) for k in klines],
             "close": [float(k.c) for k in klines],
             "volume": [float(k.v) for k in klines],
+            "quote_volume": [float(k.quote_v) for k in klines],
             "taker_buy_volume": [float(k.taker_buy_v) for k in klines],
         },
         index=pd.DatetimeIndex([k.open_time for k in klines], name="open_time", tz="UTC"),
