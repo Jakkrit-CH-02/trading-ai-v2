@@ -23,7 +23,7 @@
 - จบงานทุกครั้ง: รัน lint + test ทั้งหมด แล้วสรุปสิ่งที่เปลี่ยน
 
 ## คำสั่ง
-- `cp .env.example .env && docker compose up -d` (api: http://localhost:8000/health, web: http://localhost:5173)
+- `cp .env.example .env && docker compose up -d --build` (project `softtrade`: postgres, redis, migrate, market-data, api http://localhost:8000/health, web http://localhost:3005; พอร์ตชนให้เปลี่ยน `POSTGRES_PORT`/`REDIS_PORT`/`API_PORT`/`WEB_PORT` ใน `.env`) · สร้าง user: `docker compose run --rm api python -m app.cli create-user --email you@example.com` · หยุด: `docker compose down` (ข้อมูลอยู่ใน volume; `-v` = ลบข้อมูล)
 - Backend: `cd backend && uv run pytest` · `uv run ruff check . && uv run mypy`
 - Frontend: `cd frontend && npm run dev` · `npm run lint && npm test` · ดู component ที่ `/dev/ui` · `npm run gen:api` สร้าง `src/lib/api-types.ts` ใหม่จาก OpenAPI ของ backend (รันทุกครั้งที่แก้ schema)
 - API: `cd backend && uv run uvicorn app.main:app --port 8000` (ต้องตั้ง `DATABASE_URL` ของ DB ที่มี candles ใน `.env`; ไม่มี key Demo = Dashboard แสดง "ยังไม่ได้เชื่อมบัญชี")
@@ -32,6 +32,6 @@
 - Backtest: `cd backend && uv run softtrade backtest --strategy s1 --symbol BTCUSDT --years 3` · เพิ่ม `--walk-forward --grid tp1_r=1.2,1.5` เพื่อดูผล out-of-sample · `--symbols BTCUSDT ETHUSDT SOLUSDT BNBUSDT XRPUSDT` รวมหลายเหรียญเป็นพอร์ตถ่วงน้ำหนักเท่ากัน (ต้อง backfill ก่อน และข้อมูล < 3 ปีจะไม่ผ่าน gate 1)
 - Testnet: `cd backend && uv run softtrade testnet-check --stage 1` (1 อ่านอย่างเดียว · 2 +ออเดอร์ทดสอบ · 3 +OrderManager) ใช้ `BINANCE_API_KEY/SECRET` จาก `.env` และเลือกระบบด้วย `BINANCE_TRADING_ENV=demo` (Binance Demo Trading, demo-api.binance.com — ค่าเริ่มต้น) หรือ `testnet` (testnet.binance.vision) key ใช้ได้เฉพาะระบบที่สร้างมา; adapter ปฏิเสธทุก host อื่นรวมถึง api.binance.com
 - Login: `cd backend && uv run softtrade gen-master-key` (ใส่ `MASTER_KEY` ใน `.env`, `JWT_SECRET` ≥ 32 ตัว) แล้ว `uv run softtrade create-user --email you@example.com` (ไม่มีหน้าสมัคร; พิมพ์ TOTP secret ให้ครั้งเดียว) · endpoint เสี่ยงต้องส่ง `X-TOTP`
-- Test ใหม่ของ Phase 5 ใช้ Postgres จริง: สร้าง DB แยก (เช่น `softtrade_test` ใน container เดียวกับ data DB) แล้วตั้ง `TEST_DATABASE_URL` — ไม่ตั้งจะข้ามเฉพาะ test ที่ต้องใช้ DB
+- Test ใหม่ของ Phase 5 ใช้ Postgres จริง: สร้าง DB แยก (เช่น `softtrade_test` ใน postgres ของ compose: `docker compose exec postgres psql -U softtrade -c "CREATE DATABASE softtrade_test"`) แล้วตั้ง `TEST_DATABASE_URL` — ไม่ตั้งจะข้ามเฉพาะ test ที่ต้องใช้ DB
 - Risk Engine gate ใน CI: `uv run pytest tests/test_risk_*.py --cov=app.risk --cov-branch --cov-fail-under=95`
 - Test ที่ใช้ DB จริง: ตั้ง `TEST_DATABASE_URL=postgresql+asyncpg://...` (ไม่ตั้ง = ข้าม) DB นั้นถูก downgrade/upgrade ทุกครั้ง ห้ามชี้ไปที่ DB จริง
