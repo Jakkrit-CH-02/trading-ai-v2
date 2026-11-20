@@ -151,6 +151,29 @@ async def _pooled(
     return 0
 
 
+async def create_user_cmd(email: str) -> int:
+    import getpass
+
+    from app.auth.core import totp_uri
+    from app.auth.crypto import CryptoError
+    from app.auth.routes import create_user
+    from app.main import build_services
+
+    password = getpass.getpass("Password (min 12 chars): ")
+    if len(password) < 12 or password != getpass.getpass("Repeat: "):
+        print("password too short or does not match")
+        return 2
+    svc = build_services(get_settings())
+    try:
+        _, secret = await create_user(svc, email, password)
+    except CryptoError as e:
+        print(f"{e}")
+        return 2
+    print("User created. Add this to your authenticator app (shown once):")
+    print(f"  secret: {secret}\n  uri:    {totp_uri(secret, email.lower())}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="softtrade")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -175,6 +198,9 @@ def main(argv: list[str] | None = None) -> int:
     tc.add_argument(
         "--stage", type=int, choices=[1, 2, 3], default=1, help="1 read-only, 2 +order, 3 +manager"
     )
+    cu = sub.add_parser("create-user", help="create the (only) login; prints the TOTP secret once")
+    cu.add_argument("--email", required=True)
+    sub.add_parser("gen-master-key", help="print a new MASTER_KEY for .env")
     args = parser.parse_args(argv)
 
     s = get_settings()
@@ -187,6 +213,13 @@ def main(argv: list[str] | None = None) -> int:
         return check(args.stage)
     if args.cmd == "backtest":
         return asyncio.run(backtest(args))
+    if args.cmd == "gen-master-key":
+        from app.auth.crypto import generate_master_key
+
+        print(generate_master_key())
+        return 0
+    if args.cmd == "create-user":
+        return asyncio.run(create_user_cmd(args.email))
     return 1
 
 

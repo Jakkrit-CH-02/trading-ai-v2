@@ -23,10 +23,11 @@ from app.api.schemas import (
     WatchItem,
 )
 from app.api.services import NAMES, Services, get_services
+from app.auth.deps import current_user
 from app.exchange.errors import ExchangeError
 from app.exchange.types import INTERVAL_MS
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(current_user)])
 Svc = Annotated[Services, Depends(get_services)]
 Interval = Literal["15m", "1h", "4h", "1d"]
 

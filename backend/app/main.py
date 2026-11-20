@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from app.api import health, v1, ws
 from app.api.services import BinanceMarketGateway, Services
+from app.auth import routes as auth_routes
 from app.core.config import Settings, get_settings
 from app.core.db import make_engine, make_session_factory
 from app.core.logging import configure_logging
@@ -27,13 +28,21 @@ def build_services(settings: Settings) -> Services:
     )
     market = BinanceMarketGateway(settings.binance_rest_url, settings.fng_url)
     return Services(
-        settings=settings, candles=PgCandleStore(factory), market=market, trading=trading
+        settings=settings,
+        candles=PgCandleStore(factory),
+        market=market,
+        trading=trading,
+        db=factory,
     )
 
 
 def create_app(services: Services | None = None) -> FastAPI:
     settings = get_settings()
     configure_logging(settings.service_name)
+    if settings.env != "dev":
+        secret = settings.jwt_secret.get_secret_value()
+        if secret.startswith("change-me") or len(secret) < 32:
+            raise RuntimeError("JWT_SECRET must be a random value of at least 32 characters")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -49,6 +58,7 @@ def create_app(services: Services | None = None) -> FastAPI:
     if services is not None:
         app.state.services = services
     app.include_router(health.router)
+    app.include_router(auth_routes.router)
     app.include_router(v1.router)
     app.include_router(ws.router)
     return app

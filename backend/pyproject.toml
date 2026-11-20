@@ -17,6 +17,10 @@ dependencies = [
   "websockets>=17.4",
   "pandas>=3.1.1",
   "numpy>=2.5.5",
+  "argon2-cffi>=25.1.0",
+  "pyotp>=2.12.1",
+  "pyjwt>=2.15.1",
+  "cryptography>=50.0.2",
 ]
 
 [project.scripts]

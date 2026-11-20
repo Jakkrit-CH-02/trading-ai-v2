@@ -9,8 +9,11 @@ from typing import Any, Protocol
 
 import httpx
 from fastapi import Request
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.schemas import Sentiment, Ticker
+from app.auth.core import LoginLimiter, TotpVerifier
+from app.auth.crypto import EnvelopeCipher
 from app.core.config import Settings
 from app.exchange.trading import TradingAdapter
 from app.marketdata.store import CandleStore
@@ -119,7 +122,13 @@ class Services:
     profile: RiskProfile = field(default_factory=RiskProfile)
     breakers: CircuitBreakers | None = None
     day_start: DayStart = field(default_factory=DayStart)
+    db: async_sessionmaker[AsyncSession] | None = None
+    limiter: LoginLimiter = field(default_factory=LoginLimiter)
+    totp: TotpVerifier = field(default_factory=TotpVerifier)
     extras: dict[str, Any] = field(default_factory=dict)
+
+    def get_cipher(self) -> EnvelopeCipher:
+        return EnvelopeCipher.from_b64(self.settings.master_key.get_secret_value())
 
     def risk_breakers(self) -> CircuitBreakers:
         if self.breakers is None:
