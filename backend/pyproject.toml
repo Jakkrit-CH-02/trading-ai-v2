@@ -13,17 +13,24 @@ dependencies = [
   "alembic>=1.14",
   "redis>=5.2",
   "structlog>=24.4",
+  "httpx>=0.28.1",
+  "websockets>=17.4",
+  "pandas>=3.1.1",
+  "numpy>=2.5.5",
 ]
+
+[project.scripts]
+softtrade = "app.cli:main"
 
 [dependency-groups]
 dev = [
   "pytest>=8.3",
   "pytest-asyncio>=0.24",
   "pytest-cov>=6.0",
-  "httpx>=0.28",
   "hypothesis>=6.120",
   "ruff>=0.8",
   "mypy>=1.13",
+  "pandas-stubs>=3.1.0.261029",
 ]
 
 [build-system]
@@ -36,6 +43,7 @@ packages = ["app", "services"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "DTZ", "RUF"]
@@ -51,6 +59,11 @@ strict = true
 plugins = ["pydantic.mypy"]
 files = ["app", "services", "tests"]
 
+[[tool.mypy.overrides]]
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

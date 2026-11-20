@@ -21,6 +21,7 @@ if config.config_file_name is not None:
 # target_metadata = mymodel.Base.metadata
 from app.core.config import get_settings
 from app.core.db import Base
+from app.core import models  # noqa: F401  (register tables)
 
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 target_metadata = Base.metadata

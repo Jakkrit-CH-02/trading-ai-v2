@@ -26,4 +26,6 @@
 - `cp .env.example .env && docker compose up -d` (api: http://localhost:8000/health, web: http://localhost:5173)
 - Backend: `cd backend && uv run pytest` · `uv run ruff check . && uv run mypy`
 - Frontend: `cd frontend && npm run dev` · `npm run lint && npm test`
-- Migration: `cd backend && uv run alembic revision --autogenerate -m "..."`
+- Migration: `cd backend && uv run alembic revision --autogenerate -m "..."` · `uv run alembic upgrade head`
+- Backfill: `cd backend && uv run softtrade backfill --symbols BTCUSDT --intervals 1h 4h --days 30` (ข้อมูล public ไม่ต้องมี key; รันซ้ำได้)
+- Test ที่ใช้ DB จริง: ตั้ง `TEST_DATABASE_URL=postgresql+asyncpg://...` (ไม่ตั้ง = ข้าม) DB นั้นถูก downgrade/upgrade ทุกครั้ง ห้ามชี้ไปที่ DB จริง
