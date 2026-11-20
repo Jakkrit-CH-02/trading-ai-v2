@@ -1,1 +1,73 @@
-@import "tailwindcss";
+@import '@fontsource/poppins/400.css';
+@import '@fontsource/poppins/500.css';
+@import '@fontsource/poppins/600.css';
+@import '@fontsource/poppins/700.css';
+@import '@fontsource/ibm-plex-sans-thai/400.css';
+@import '@fontsource/ibm-plex-sans-thai/500.css';
+@import 'tailwindcss';
+@import './styles/tokens.css';
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  transition: box-shadow 150ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+@keyframes flash-up {
+  from {
+    color: var(--up);
+  }
+}
+@keyframes flash-down {
+  from {
+    color: var(--down);
+  }
+}
+.flash-up {
+  animation: flash-up 300ms;
+}
+.flash-down {
+  animation: flash-down 300ms;
+}
+@keyframes shimmer {
+  50% {
+    opacity: 0.55;
+  }
+}
+.skeleton {
+  animation: shimmer 1.4s ease-in-out infinite;
+}

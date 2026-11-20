@@ -1,1 +1,88 @@
-@import "tailwindcss";
+/* Design tokens — SPEC 9.1 / 9.2 / 9.3. Light is the default; dark via [data-theme="dark"]
+   (set by the theme toggle) or the OS preference when no explicit choice was made. */
+:root {
+  --bg: #e6e9ef;
+  --surface: #e6e9ef;
+  --shadow-light: #ffffff;
+  --shadow-dark: #c5cbd6;
+  --text-primary: #1c1f26;
+  --text-secondary: #5e6574;
+  --accent: #e9b026;
+  --on-accent: #1c1f26;
+  --accent-fill: rgb(233 176 38 / 14%);
+  --up: #0f7240;
+  --down: #b8332a;
+  --ink: #1c1f26;
+  --on-ink: #f4f5f7;
+  --focus: #2f6feb;
+
+  --raised-lg: 10px 10px 24px var(--shadow-dark), -10px -10px 24px var(--shadow-light);
+  --raised-sm: 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
+  --inset: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light);
+  --pressed: inset 2px 2px 5px var(--shadow-dark), inset -2px -2px 5px var(--shadow-light);
+
+  --radius-card: 24px;
+  --radius-panel: 16px;
+  --radius-control: 14px;
+  --radius-pill: 999px;
+  --font-sans: 'Poppins', 'IBM Plex Sans Thai', system-ui, sans-serif;
+}
+
+:root[data-theme='dark'] {
+  --bg: #1d2027;
+  --surface: #1d2027;
+  --shadow-light: #2a2e37;
+  --shadow-dark: #131519;
+  --text-primary: #e9ebf0;
+  --text-secondary: #9ba1ae;
+  --accent: #f2be3c;
+  --on-accent: #1d2027;
+  --accent-fill: rgb(242 190 60 / 18%);
+  --up: #3dd68c;
+  --down: #ff6b61;
+  --ink: #f4f5f7;
+  --on-ink: #1d2027;
+  --focus: #6ea0ff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #1d2027;
+    --surface: #1d2027;
+    --shadow-light: #2a2e37;
+    --shadow-dark: #131519;
+    --text-primary: #e9ebf0;
+    --text-secondary: #9ba1ae;
+    --accent: #f2be3c;
+    --on-accent: #1d2027;
+    --accent-fill: rgb(242 190 60 / 18%);
+    --up: #3dd68c;
+    --down: #ff6b61;
+    --ink: #f4f5f7;
+    --on-ink: #1d2027;
+    --focus: #6ea0ff;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-accent-fill: var(--accent-fill);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-ink: var(--ink);
+  --color-on-ink: var(--on-ink);
+  --color-focus: var(--focus);
+  --font-sans: var(--font-sans);
+  --shadow-raised-lg: var(--raised-lg);
+  --shadow-raised-sm: var(--raised-sm);
+  --shadow-inset: var(--inset);
+  --shadow-pressed: var(--pressed);
+  --radius-card: 24px;
+  --radius-panel: 16px;
+  --radius-control: 14px;
+}
