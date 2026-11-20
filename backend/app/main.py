@@ -1,3 +1,4 @@
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -6,7 +7,7 @@ from fastapi import FastAPI
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api import accounts, bots, health, risk_routes, v1, ws
+from app.api import accounts, backtests, bots, health, risk_routes, v1, ws
 from app.api.services import BinanceMarketGateway, Services
 from app.auth import routes as auth_routes
 from app.core.config import Settings, get_settings
@@ -76,6 +77,8 @@ def create_app(services: Services | None = None) -> FastAPI:
         if services is None:
             app.state.services = build_services(settings)
         await restore_kill_state(app.state.services)
+        with contextlib.suppress(OSError, SQLAlchemyError):
+            await backtests.fail_interrupted(app.state.services)
         yield
         svc: Services = app.state.services
         await svc.market.aclose()
@@ -91,6 +94,7 @@ def create_app(services: Services | None = None) -> FastAPI:
     app.include_router(bots.router)
     app.include_router(risk_routes.router)
     app.include_router(accounts.router)
+    app.include_router(backtests.router)
     app.include_router(ws.router)
     return app
 

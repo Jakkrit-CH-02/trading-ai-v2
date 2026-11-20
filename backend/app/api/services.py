@@ -1,6 +1,7 @@
 """Shared dependencies of the HTTP/WS layer. Everything external is behind a small interface
 so the API can be tested without a network, a database or an exchange."""
 
+import asyncio
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -136,6 +137,8 @@ class Services:
     notifier: Notifier = field(default_factory=NullNotifier)
     # (api_key, api_secret, is_testnet) -> adapter that can probe key permissions (injectable)
     adapter_factory: Callable[[str, str, bool], "AccountProbe"] | None = None
+    job_lock: asyncio.Lock = field(default_factory=asyncio.Lock)  # one backtest at a time
+    tasks: set[asyncio.Task[None]] = field(default_factory=set)
     engine_attached: bool = False  # no trading engine runs yet (Phase 5 has no bot runtime)
     extras: dict[str, Any] = field(default_factory=dict)
 
