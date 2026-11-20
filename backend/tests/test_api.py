@@ -145,7 +145,7 @@ def test_summary_and_orders_with_an_account() -> None:
 def test_bots_and_risk_status_defaults_and_active_breaker() -> None:
     svc = make_services()
     c = authed(create_app(svc))
-    assert c.get("/api/v1/bots").json()["running"] == 0
+    assert c.get("/api/v1/bots/summary").json()["running"] == 0
     r = c.get("/api/v1/risk/status").json()
     assert r["kill_switch"] is False and r["breakers"] == [] and r["open_risk_cap_pct"] == "2.00"
     b = CircuitBreakers(svc.profile)

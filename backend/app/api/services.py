@@ -2,6 +2,7 @@
 so the API can be tested without a network, a database or an exchange."""
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -17,6 +18,7 @@ from app.auth.crypto import EnvelopeCipher
 from app.core.config import Settings
 from app.exchange.trading import TradingAdapter
 from app.marketdata.store import CandleStore
+from app.notify.telegram import Notifier, NullNotifier
 from app.risk import CircuitBreakers, RiskProfile
 
 NAMES = {
@@ -26,6 +28,12 @@ NAMES = {
     "BNBUSDT": "BNB",
     "XRPUSDT": "XRP",
 }
+
+
+class AccountProbe(Protocol):
+    async def account_info(self) -> dict[str, Any]: ...
+
+    async def aclose(self) -> None: ...
 
 
 class MarketGateway(Protocol):
@@ -125,6 +133,10 @@ class Services:
     db: async_sessionmaker[AsyncSession] | None = None
     limiter: LoginLimiter = field(default_factory=LoginLimiter)
     totp: TotpVerifier = field(default_factory=TotpVerifier)
+    notifier: Notifier = field(default_factory=NullNotifier)
+    # (api_key, api_secret, is_testnet) -> adapter that can probe key permissions (injectable)
+    adapter_factory: Callable[[str, str, bool], "AccountProbe"] | None = None
+    engine_attached: bool = False  # no trading engine runs yet (Phase 5 has no bot runtime)
     extras: dict[str, Any] = field(default_factory=dict)
 
     def get_cipher(self) -> EnvelopeCipher:
