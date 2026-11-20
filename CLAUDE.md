@@ -25,7 +25,8 @@
 ## คำสั่ง
 - `cp .env.example .env && docker compose up -d` (api: http://localhost:8000/health, web: http://localhost:5173)
 - Backend: `cd backend && uv run pytest` · `uv run ruff check . && uv run mypy`
-- Frontend: `cd frontend && npm run dev` · `npm run lint && npm test`
+- Frontend: `cd frontend && npm run dev` · `npm run lint && npm test` · ดู component ที่ `/dev/ui` · `npm run gen:api` สร้าง `src/lib/api-types.ts` ใหม่จาก OpenAPI ของ backend (รันทุกครั้งที่แก้ schema)
+- API: `cd backend && uv run uvicorn app.main:app --port 8000` (ต้องตั้ง `DATABASE_URL` ของ DB ที่มี candles ใน `.env`; ไม่มี key Demo = Dashboard แสดง "ยังไม่ได้เชื่อมบัญชี")
 - Migration: `cd backend && uv run alembic revision --autogenerate -m "..."` · `uv run alembic upgrade head`
 - Backfill: `cd backend && uv run softtrade backfill --symbols BTCUSDT --intervals 1h 4h --days 30` (ข้อมูล public ไม่ต้องมี key; รันซ้ำได้)
 - Backtest: `cd backend && uv run softtrade backtest --strategy s1 --symbol BTCUSDT --years 3` · เพิ่ม `--walk-forward --grid tp1_r=1.2,1.5` เพื่อดูผล out-of-sample · `--symbols BTCUSDT ETHUSDT SOLUSDT BNBUSDT XRPUSDT` รวมหลายเหรียญเป็นพอร์ตถ่วงน้ำหนักเท่ากัน (ต้อง backfill ก่อน และข้อมูล < 3 ปีจะไม่ผ่าน gate 1)

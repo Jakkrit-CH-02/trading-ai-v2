@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # Read-only public market data. Order endpoints (testnet) arrive in Phase 3.
     binance_rest_url: str = "https://data-api.binance.vision"
     binance_ws_url: str = "wss://data-stream.binance.vision"
+    fng_url: str = "https://api.alternative.me/fng/"  # public Fear & Greed index
     stale_after_seconds: float = 10.0
     # Until Gate B only testnet/demo is allowed (see CLAUDE.md).
     binance_testnet_only: bool = True
