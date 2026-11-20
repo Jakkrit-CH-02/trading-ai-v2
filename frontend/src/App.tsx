@@ -2,6 +2,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Outlet, Route, Routes } from 'react-router-dom'
 import Login from './features/auth/Login'
+import BacktestLab from './features/backtest/BacktestLab'
+import BotDetail from './features/bots/BotDetail'
+import Bots from './features/bots/Bots'
+import Wizard from './features/bots/Wizard'
+import RiskSettings from './features/risk/RiskSettings'
+import Trade from './features/trade/Trade'
 import Dashboard from './features/dashboard/Dashboard'
 import { refresh, useAuth } from './lib/auth'
 import Shell from './shell/Shell'
@@ -32,7 +38,13 @@ export default function App() {
           <Route element={<Gate />}>
           <Route element={<Shell />}>
             <Route index element={<Dashboard />} />
-            {['trade', 'bots', 'ai', 'backtest', 'settings'].map((p) => (
+            <Route path="bots" element={<Bots />} />
+            <Route path="bots/new" element={<Wizard />} />
+            <Route path="bots/:id" element={<BotDetail />} />
+            <Route path="backtest" element={<BacktestLab />} />
+            <Route path="settings" element={<RiskSettings />} />
+            <Route path="trade" element={<Trade />} />
+            {['ai'].map((p) => (
               <Route key={p} path={p} element={<Soon name={p} />} />
             ))}
             <Route

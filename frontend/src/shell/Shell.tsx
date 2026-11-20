@@ -2,6 +2,7 @@ import * as Tooltip from '@radix-ui/react-tooltip'
 import { Bell, Bot, FlaskConical, LayoutDashboard, LineChart, Moon, Search, Settings, ShieldAlert, Sparkles, Sun } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { logout, useAuth } from '../lib/auth'
+import { TotpHost } from '../lib/totp'
 import { useTheme } from '../lib/theme'
 import { BotStatusPill, IconButton, MarketStatusPill, Toaster, cx } from '../ui'
 
@@ -95,6 +96,7 @@ export default function Shell({ paper = true }: { paper?: boolean }) {
         </main>
       </div>
       <Toaster />
+      <TotpHost />
     </Tooltip.Provider>
   )
 }
