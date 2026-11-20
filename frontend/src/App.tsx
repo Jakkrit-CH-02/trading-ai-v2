@@ -1,7 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { lazy, Suspense } from 'react'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { lazy, Suspense, useEffect } from 'react'
+import { BrowserRouter, Outlet, Route, Routes } from 'react-router-dom'
+import Login from './features/auth/Login'
 import Dashboard from './features/dashboard/Dashboard'
+import { refresh, useAuth } from './lib/auth'
 import Shell from './shell/Shell'
 import { Card } from './ui'
 
@@ -12,11 +14,22 @@ function Soon({ name }: { name: string }) {
   return <Card title={name} subtitle="Planned for Phase 5" />
 }
 
+function Gate() {
+  const { token, ready, setReady } = useAuth()
+  useEffect(() => {
+    void refresh().finally(setReady) // restore the session from the httpOnly cookie
+  }, [setReady])
+  if (!ready) return <div role="status" aria-label="Loading" className="p-8" />
+  if (!token) return <Login />
+  return <Outlet />
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
+          <Route element={<Gate />}>
           <Route element={<Shell />}>
             <Route index element={<Dashboard />} />
             {['trade', 'bots', 'ai', 'backtest', 'settings'].map((p) => (
@@ -30,6 +43,7 @@ export default function App() {
                 </Suspense>
               }
             />
+          </Route>
           </Route>
         </Routes>
       </BrowserRouter>
