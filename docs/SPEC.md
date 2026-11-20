@@ -42,7 +42,7 @@ Softtrade คือ web app ที่รันบอทเทรดบน Binanc
 
 | กลยุทธ์ | Timeframe | เข้า | ออก / Stop |
 | --- | --- | --- | --- |
-| S1 Trend Pullback | เข้า 1H กรองทิศด้วย 4H | ราคาย่อกลับแตะ EMA20/EMA50 ใน regime TREND\_UP, RSI(14) กลับขึ้นเหนือ 50, แท่งปิดเหนือ EMA20 | SL = swing low − 0.5×ATR · TP1 1.5R (ปิด 50%) · ส่วนที่เหลือ trailing ด้วย Chandelier 3×ATR(22) |
+| S1 Trend Pullback | เข้า 1H กรองทิศด้วย 4H | ราคาย่อกลับแตะ EMA20/EMA50 ใน regime TREND\_UP, RSI(14) กลับขึ้นเหนือ 50, แท่งปิดเหนือ EMA20 | SL = swing low − 0.5×ATR · TP1 2R (ปิด 50%) *(ปรับจาก 1.5R: ข้อ 3.5 บังคับ R:R ≥ 1.5 หลังค่าธรรมเนียม ซึ่ง 1.5R ทำไม่ได้ — ตัดสินใจเมื่อ 2026-11-20)* · ส่วนที่เหลือ trailing ด้วย Chandelier 3×ATR(22) |
 | S2 Mean Reversion | 15m–1H | เฉพาะ RANGE: ราคาปิดต่ำกว่า BB(20,2) ล่าง + RSI(14) < 30 แล้วแท่งถัดไปปิดกลับเข้ากรอบ | TP = BB เส้นกลาง · SL = 1.5×ATR · ตัดทิ้งถ้าไม่ถึง TP ภายใน 12 แท่ง (time stop) |
 | S3 Volatility Breakout | 4H | BB width อยู่ percentile < 20 (squeeze) แล้วราคาปิดทะลุ Donchian 20 พร้อม volume > 1.5× ค่าเฉลี่ย 20 แท่ง | SL = กลางกรอบ Donchian · trailing 2.5×ATR · ถ้ากลับเข้ากรอบภายใน 3 แท่ง = false breakout ปิดทันที |
 | S4 Bounded Grid (Spot) | 1H | เฉพาะ RANGE: ตั้ง grid 10–20 ชั้นระหว่างแนวรับแนวต้าน ระยะห่างแต่ละชั้น ≥ 3× ค่าธรรมเนียมไปกลับ | หยุด grid และปิดสถานะทันทีถ้าราคาหลุดกรอบล่าง 1×ATR หรือ regime เปลี่ยน |

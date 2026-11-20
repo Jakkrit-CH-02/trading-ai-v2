@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
 
     env: str = "dev"
     service_name: str = "api"
@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     stale_after_seconds: float = 10.0
     # Until Gate B only testnet/demo is allowed (see CLAUDE.md).
     binance_testnet_only: bool = True
+    # "demo" = Binance Demo Trading (demo-api.binance.com), "testnet" = testnet.binance.vision.
+    # A key only works in the environment it was created in.
+    binance_trading_env: str = "demo"
+    # Demo/testnet credentials (fake money only). Never logged, never sent to an LLM.
+    binance_api_key: SecretStr = SecretStr("")
+    binance_api_secret: SecretStr = SecretStr("")
 
 
 @lru_cache

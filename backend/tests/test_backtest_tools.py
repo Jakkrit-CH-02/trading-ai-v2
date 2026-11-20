@@ -25,7 +25,8 @@ from app.marketdata.store import InMemoryCandleStore
 from tests import synth
 
 D = Decimal
-CFG = BacktestConfig(min_quote_volume_24h=0.0)  # default fees: 0.1% taker, 0.05% slippage
+# plumbing tests isolate the backtest machinery from risk policy (see test_backtest_risk.py)
+CFG = BacktestConfig(min_quote_volume_24h=0.0, use_risk_engine=False)
 
 
 def trade(pnl: float, r: float = 0.0, ret: float = 0.0) -> TradeResult:
@@ -137,7 +138,7 @@ def test_registry_builds_all_strategies_and_rejects_bad_input() -> None:
 
 def test_parameter_override_changes_the_signal() -> None:
     fr = synth.frames(synth.standard_market())
-    s15, s20 = make_strategy("s1"), make_strategy("s1", {"tp1_r": 2.0})
+    s15, s20 = make_strategy("s1"), make_strategy("s1", {"tp1_r": 2.5})
     f15, f20 = s15.prepare(fr), s20.prepare(fr)
     i = next(i for i in range(len(f15)) if s15.evaluate(f15, i))  # type: ignore[union-attr]
     a, b = s15.evaluate(f15, i), s20.evaluate(f20, i)  # type: ignore[union-attr]
@@ -291,7 +292,9 @@ def test_zero_cost_run_beats_costed_run() -> None:
     fr = synth.frames(synth.standard_market())
     s = make_strategy("s1")
     feats = s.prepare(fr)
-    free_cfg = BacktestConfig(fees=FeeModel(D(0), D(0)), min_quote_volume_24h=0.0)
+    free_cfg = BacktestConfig(
+        fees=FeeModel(D(0), D(0)), min_quote_volume_24h=0.0, use_risk_engine=False
+    )
     free = run_strategy(s, feats, free_cfg)
     costed = run_strategy(s, feats, CFG)
     assert free.trades and costed.trades

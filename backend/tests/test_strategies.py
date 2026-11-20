@@ -161,7 +161,7 @@ def test_s1_signal_shape_matches_spec() -> None:
     for s in sigs.values():
         risk = s.entry - s.stop
         assert risk > 0 and s.tp1 is not None
-        assert abs(s.tp1 - (s.entry + Decimal("1.5") * risk)) <= Decimal("0.00000002")  # 1.5R
+        assert abs(s.tp1 - (s.entry + Decimal("2.0") * risk)) <= Decimal("0.00000002")  # 2R
         assert s.tp1_close_fraction == Decimal("0.5")
         assert s.trail is not None and s.trail.mult == 3.0 and s.trail.period == 22
         assert s.reasons["regime4"] == "TREND_UP"

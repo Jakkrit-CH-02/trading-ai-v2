@@ -54,6 +54,7 @@ class Stub:
 def cfg(**kw: object) -> BacktestConfig:
     kw.setdefault("fees", FREE)
     kw.setdefault("min_quote_volume_24h", 0.0)
+    kw.setdefault("use_risk_engine", False)  # these tests isolate timing/accounting rules
     return BacktestConfig(**kw)  # type: ignore[arg-type]
 
 
@@ -174,7 +175,7 @@ def test_exposure_cap_limits_position_size() -> None:
 
 def test_costs_are_charged_and_ledger_balances() -> None:
     f = feats([FLAT, (100, 100.5, 94, 95), FLAT])
-    c = BacktestConfig(min_quote_volume_24h=0.0)  # 0.1% fee, 0.05% slip
+    c = BacktestConfig(min_quote_volume_24h=0.0, use_risk_engine=False)  # 0.1% fee, 0.05% slip
     r = run_backtest(Stub({0: sig(f, 0, stop=95)}), f, c)
     t = r.trades[0]
     assert t.entry_price == D(100) * (1 + D("0.0005"))

@@ -25,6 +25,8 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy
       - run: uv run pytest -q
+      - name: Risk Engine coverage gate (SPEC 3, >= 95%)
+        run: uv run pytest tests/test_risk_*.py -q --cov=app.risk --cov-branch --cov-fail-under=95
   frontend:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: frontend } }

@@ -123,12 +123,20 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--min-quote-volume", type=float, default=50_000_000.0)
     bt.add_argument("--walk-forward", action="store_true")
     bt.add_argument("--grid", nargs="*", help="walk-forward grid, e.g. tp1_r=1.2,1.5,2.0")
+    tc = sub.add_parser("testnet-check", help="verify the adapter against the Binance Spot Testnet")
+    tc.add_argument(
+        "--stage", type=int, choices=[1, 2, 3], default=1, help="1 read-only, 2 +order, 3 +manager"
+    )
     args = parser.parse_args(argv)
 
     s = get_settings()
     if args.cmd == "backfill":
         days = args.days if args.days is not None else int(args.years * 365)
         return asyncio.run(backfill(args.symbols or s.symbols, args.intervals or s.intervals, days))
+    if args.cmd == "testnet-check":
+        from app.testnet_check import main as check
+
+        return check(args.stage)
     if args.cmd == "backtest":
         return asyncio.run(backtest(args))
     return 1

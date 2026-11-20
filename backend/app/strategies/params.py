@@ -31,7 +31,9 @@ class S1Params:
     pullback_lookback: int = 6  # bars in which price must have touched EMA20/50
     swing_lookback: int = 10
     stop_atr: float = 0.5
-    tp1_r: float = 1.5
+    # SPEC 2.2 says 1.5R, but SPEC 3.5 needs R:R >= 1.5 *after costs*, which 1.5R can never meet
+    # (~1.2 after fees). Decision (2026-11-20): TP1 at 2R.
+    tp1_r: float = 2.0
     trail_mult: float = 3.0
     trail_period: int = 22
     regimes: tuple[Regime, ...] = (Regime.TREND_UP,)

@@ -18,6 +18,9 @@ def redact(_: Any, __: str, event_dict: MutableMapping[str, Any]) -> MutableMapp
 
 def configure_logging(service: str) -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    # httpx logs full URLs at INFO; signed GET requests carry `signature=` in the query string
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,

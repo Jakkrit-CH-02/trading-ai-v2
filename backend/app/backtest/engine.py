@@ -16,13 +16,14 @@ per-symbol exposure cap). The real Risk Engine arrives in Phase 3 and replaces i
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from app.backtest.riskgate import RiskGate
 from app.core.models import Decision
 from app.exchange.types import INTERVAL_MS
 from app.marketdata import indicators as ind
@@ -32,6 +33,7 @@ from app.strategies.scoring import ScoreResult, ScoreWeights, score_signal
 from app.strategies.types import Signal
 
 QTY_STEP = Decimal("0.00000001")
+ZERO_QTY = Decimal(0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +53,9 @@ class BacktestConfig:
     min_notional: Decimal = Decimal(10)
     cooldown_hours: int = 4
     min_quote_volume_24h: float = 50_000_000.0  # SPEC 2.4 liquidity filter; 0 disables
+    # Size and approve entries with the real Risk Engine (same code as live). False keeps the
+    # old placeholder sizing; only meant for isolated timing/accounting tests.
+    use_risk_engine: bool = True
     fees: FeeModel = field(default_factory=FeeModel)
     weights: ScoreWeights = field(default_factory=ScoreWeights)
 
@@ -143,6 +148,11 @@ def run_backtest(
     bar_ms = INTERVAL_MS[feats.interval]
     cooldown_bars = math.ceil(cfg.cooldown_hours * 3_600_000 / bar_ms)
 
+    gate = (
+        RiskGate(cfg.risk_per_trade, fee, slip, cfg.max_symbol_exposure, cfg.min_notional, cash)
+        if cfg.use_risk_engine
+        else None
+    )
     pos: _Pos | None = None
     pending: tuple[Signal, ScoreResult, SignalRecord] | None = None
     cooldown_until = -1
@@ -188,6 +198,8 @@ def run_backtest(
                 reasons=p.signal.reasons,
             )
         )
+        if gate is not None:
+            gate.record_trade(pnl)
         if pnl < 0 and reason in ("stop", "breakeven", "trail"):
             cooldown_until = i + cooldown_bars
         pos = None
@@ -203,13 +215,24 @@ def run_backtest(
             if fill <= sig.stop:
                 rec.decision, rec.reason = Decision.REJECTED, "gapped below stop at entry"
             else:
-                unit_risk = (fill - sig.stop) + (fill + sig.stop) * (fee + slip)
-                qty = cash * cfg.risk_per_trade * sc.size_factor / unit_risk
-                qty = min(
-                    qty, cash * cfg.max_symbol_exposure / fill, cash / (fill * (1 + fee))
-                ).quantize(QTY_STEP, rounding=ROUND_DOWN)
-                if qty * fill < cfg.min_notional:
-                    rec.decision, rec.reason = Decision.REJECTED, "below min notional"
+                qty = ZERO_QTY
+                reject = ""
+                if gate is not None:
+                    d = gate.decide(feats.time(i), cash, feats.symbol, fill, sig, sc.size_factor)
+                    if d.approved:
+                        qty = d.qty
+                    else:
+                        reject = "risk engine: " + ",".join(r.value for r in d.reasons)
+                else:
+                    unit_risk = (fill - sig.stop) + (fill + sig.stop) * (fee + slip)
+                    qty = cash * cfg.risk_per_trade * sc.size_factor / unit_risk
+                    qty = min(
+                        qty, cash * cfg.max_symbol_exposure / fill, cash / (fill * (1 + fee))
+                    ).quantize(QTY_STEP, rounding=ROUND_DOWN)
+                    if qty * fill < cfg.min_notional:
+                        reject = "below min notional"
+                if reject:
+                    rec.decision, rec.reason = Decision.REJECTED, reject
                 else:
                     cash_before = cash
                     cash -= qty * fill * (1 + fee)
@@ -280,6 +303,12 @@ def run_backtest(
             finish(pos, i, "range_end")
 
         eq = cash + (pos.qty * c if pos is not None else Decimal(0))
+        if gate is not None:
+            gate.on_bar_close(feats.time(i) + timedelta(milliseconds=bar_ms), eq)
+            if gate.kill_switch_active and pos is not None:  # kill switch: flatten
+                sell(pos, pos.qty, c)
+                finish(pos, i, "kill_switch")
+                eq = cash
         equity_pts.append((feats.index[i], float(eq)))
 
         # 4. decide at the close of bar i (entry happens next bar)
