@@ -7,7 +7,19 @@ from fastapi import FastAPI
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api import accounts, backtests, bots, health, risk_routes, v1, ws
+from app.api import (
+    accounts,
+    backtests,
+    bots,
+    health,
+    risk_routes,
+    settings_routes,
+    v1,
+    ws,
+)
+from app.api import (
+    orders as orders_api,
+)
 from app.api.services import BinanceMarketGateway, Services
 from app.auth import routes as auth_routes
 from app.core.config import Settings, get_settings
@@ -95,6 +107,8 @@ def create_app(services: Services | None = None) -> FastAPI:
     app.include_router(risk_routes.router)
     app.include_router(accounts.router)
     app.include_router(backtests.router)
+    app.include_router(orders_api.router)
+    app.include_router(settings_routes.router)
     app.include_router(ws.router)
     return app
 

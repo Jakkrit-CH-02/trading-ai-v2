@@ -17,6 +17,7 @@ from app.api.schemas import (
     BreakerOut,
     CandleOut,
     DashboardSummary,
+    Depth,
     MarketStats,
     OrderOut,
     RiskStatus,
@@ -103,6 +104,15 @@ async def candles(
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
 ) -> list[CandleOut]:
     return await load_candles(s, _check_symbol(s, symbol), interval, limit)
+
+
+@router.get("/markets/{symbol}/depth", response_model=Depth)
+async def depth(s: Svc, symbol: str, limit: Annotated[int, Query(ge=5, le=20)] = 10) -> Depth:
+    symbol = _check_symbol(s, symbol)
+    try:
+        return await s.market.depth(symbol, limit)
+    except (httpx.HTTPError, KeyError, ValueError) as e:
+        raise HTTPException(502, "market data unavailable") from e
 
 
 @router.get("/markets/{symbol}/stats", response_model=MarketStats)

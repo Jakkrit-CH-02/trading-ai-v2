@@ -13,11 +13,12 @@ import httpx
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.api.schemas import Sentiment, Ticker
+from app.api.schemas import Depth, DepthLevel, Sentiment, Ticker
 from app.auth.core import LoginLimiter, TotpVerifier
 from app.auth.crypto import EnvelopeCipher
 from app.core.config import Settings
 from app.exchange.trading import TradingAdapter
+from app.execution.store import InMemoryExecutionStore
 from app.marketdata.store import CandleStore
 from app.notify.telegram import Notifier, NullNotifier
 from app.risk import CircuitBreakers, RiskProfile
@@ -41,6 +42,8 @@ class MarketGateway(Protocol):
     async def tickers(self, symbols: list[str]) -> dict[str, Ticker]: ...
 
     async def fear_greed(self) -> Sentiment | None: ...
+
+    async def depth(self, symbol: str, limit: int) -> Depth: ...
 
     async def aclose(self) -> None: ...
 
@@ -82,6 +85,18 @@ class BinanceMarketGateway:
         }
         self._tick = (now, out)
         return {s: out[s] for s in symbols if s in out}
+
+    async def depth(self, symbol: str, limit: int) -> Depth:
+        res = await self._http.get(
+            f"{self._rest}/api/v3/depth", params={"symbol": symbol, "limit": limit}
+        )
+        res.raise_for_status()
+        d = res.json()
+        return Depth(
+            symbol=symbol,
+            bids=[DepthLevel(price=Decimal(p), qty=Decimal(q)) for p, q in d["bids"]],
+            asks=[DepthLevel(price=Decimal(p), qty=Decimal(q)) for p, q in d["asks"]],
+        )
 
     async def fear_greed(self) -> Sentiment | None:
         now = time.monotonic()
@@ -139,6 +154,7 @@ class Services:
     adapter_factory: Callable[[str, str, bool], "AccountProbe"] | None = None
     job_lock: asyncio.Lock = field(default_factory=asyncio.Lock)  # one backtest at a time
     tasks: set[asyncio.Task[None]] = field(default_factory=set)
+    exec_store: InMemoryExecutionStore = field(default_factory=InMemoryExecutionStore)
     engine_attached: bool = False  # no trading engine runs yet (Phase 5 has no bot runtime)
     extras: dict[str, Any] = field(default_factory=dict)
 

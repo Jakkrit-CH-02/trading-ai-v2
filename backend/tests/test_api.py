@@ -12,7 +12,7 @@ from fastapi import FastAPI, WebSocketDisconnect
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from app.api.schemas import Sentiment, Ticker
+from app.api.schemas import Depth, DepthLevel, Sentiment, Ticker
 from app.api.services import BinanceMarketGateway, Services
 from app.auth.core import make_token
 from app.core.config import Settings
@@ -52,6 +52,13 @@ class FakeMarket:
             )
             for s in symbols
         }
+
+    async def depth(self, symbol: str, limit: int) -> Depth:
+        return Depth(
+            symbol=symbol,
+            bids=[DepthLevel(price=D(100) - i, qty=D(100)) for i in range(limit)],
+            asks=[DepthLevel(price=D(101) + i, qty=D(100)) for i in range(limit)],
+        )
 
     async def fear_greed(self) -> Sentiment | None:
         return self.fng
