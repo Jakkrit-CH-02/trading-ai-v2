@@ -5,7 +5,7 @@ only to measure how much the optimiser flattered itself."""
 import itertools
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import pandas as pd
@@ -139,3 +139,29 @@ def walk_forward(
     if oos_pf < 1.0:
         warnings.append("out-of-sample profit factor is below 1.0 (losing money after costs)")
     return WalkForwardResult(folds, oos_trades, stitched, oos_metrics, ratio, warnings)
+
+
+def pool_walk_forward(
+    results: Sequence[WalkForwardResult], initial_equity: float
+) -> tuple[list[TradeResult], pd.Series, Metrics]:
+    """Equal-weight portfolio of independent per-symbol sleeves.
+
+    Each symbol ran its own walk-forward with the full initial equity; the portfolio holds
+    ``1/N`` of capital in each, so trade PnL is scaled by ``1/N`` and equity is the mean of the
+    sleeve curves. Sleeves do not compete for cash or share exposure limits, which makes this
+    a mild approximation (the Risk Engine's portfolio caps are not applied across symbols)."""
+    n = len(results)
+    if n == 0:
+        raise ValueError("no walk-forward results to pool")
+    trades = sorted(
+        (
+            replace(t, pnl=t.pnl / n, fees=t.fees / n, slippage=t.slippage / n)
+            for r in results
+            for t in r.oos_trades
+        ),
+        key=lambda t: t.exit_time,
+    )
+    curves = [r.oos_equity[~r.oos_equity.index.duplicated(keep="last")] for r in results]
+    frame = pd.concat(curves, axis=1).sort_index().ffill().fillna(initial_equity)
+    equity = frame.mean(axis=1)
+    return trades, equity, compute_metrics(trades, equity, initial_equity)

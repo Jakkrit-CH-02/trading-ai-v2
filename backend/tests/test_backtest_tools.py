@@ -306,3 +306,25 @@ def test_grid_and_engine_agree_on_empty_input() -> None:
     s4 = make_strategy("s4")
     res = run_grid_backtest(s4, s4.prepare(fr), CFG)  # type: ignore[arg-type]
     assert res.final_equity == res.initial_equity + sum(t.pnl for t in res.trades)
+
+
+def test_pooled_walk_forward_is_an_equal_weight_portfolio_of_sleeves() -> None:
+    from app.backtest.walkforward import WalkForwardResult, pool_walk_forward
+
+    idx = pd.date_range("2024-01-01", periods=3, freq="1D", tz="UTC")
+
+    def result(pnl: float, curve: list[float]) -> WalkForwardResult:
+        m = compute_metrics([trade(pnl, 1.0)], pd.Series(curve, index=idx), 10_000.0)
+        return WalkForwardResult([], [trade(pnl, 1.0)], pd.Series(curve, index=idx), m, None)
+
+    trades, equity, m = pool_walk_forward(
+        [result(200, [10_000, 10_200, 10_200]), result(-100, [10_000, 9_900, 9_900])], 10_000.0
+    )
+    assert [t.pnl for t in trades] == [D(100), D(-50)] or {t.pnl for t in trades} == {
+        D(100),
+        D(-50),
+    }
+    assert equity.iloc[-1] == pytest.approx(10_050.0)  # mean of the two sleeves
+    assert m.n_trades == 2 and m.profit_factor == pytest.approx(2.0)
+    with pytest.raises(ValueError):
+        pool_walk_forward([], 10_000.0)
