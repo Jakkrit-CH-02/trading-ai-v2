@@ -9,3 +9,6 @@ dist/
 .ruff_cache/
 .pytest_cache/
 .coverage
+
+# personal setup notes (not shared)
+docs/SETUP.md

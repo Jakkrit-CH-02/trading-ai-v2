@@ -33,7 +33,7 @@ function mockApi(overrides: Routes = {}) {
     '/markets/BTCUSDT/candles': () => ({ body: ok.candles }),
     '/watchlist': () => ({ body: ok.watch }),
     '/sentiment': () => ({ body: ok.sentiment }),
-    '/bots': () => ({ body: ok.bots }),
+    '/bots/summary': () => ({ body: ok.bots }),
     '/orders': () => ({ body: ok.orders }),
     ...overrides,
   }

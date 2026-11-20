@@ -101,3 +101,14 @@ class RiskStatus(BaseModel):
     entries_blocked: bool
     breakers: list[BreakerOut]
     open_risk_cap_pct: Decimal
+
+
+class DepthLevel(BaseModel):
+    price: Decimal
+    qty: Decimal
+
+
+class Depth(BaseModel):
+    symbol: str
+    bids: list[DepthLevel]
+    asks: list[DepthLevel]

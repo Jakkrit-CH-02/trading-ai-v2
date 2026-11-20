@@ -113,11 +113,68 @@ export function NumberInput({
           inputMode="decimal"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onBlur={() => step && onChange(snapToStep(value, step))}
+          onBlur={() => {
+            // only rewrite when snapping changes the number: "115" -> "115.00" would needlessly
+            // change what is submitted (and re-run dependent previews) the moment a button is clicked
+            if (!step) return
+            const snapped = snapToStep(value, step)
+            if (Number(snapped) !== Number(value)) onChange(snapped)
+          }}
           className="w-full bg-transparent text-[15px] font-medium outline-none"
         />
         <span className="text-secondary text-[11px]">{unit}</span>
       </span>
+    </label>
+  )
+}
+
+export function Slider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  unit = '%',
+  onChange,
+  hint,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  unit?: string
+  onChange: (v: number) => void
+  hint?: string
+}) {
+  return (
+    <label className="flex flex-col gap-2">
+      <span className="flex items-baseline justify-between">
+        <span className="text-[13px] font-medium">{label}</span>
+        <span className="text-[13px] font-semibold">
+          {value}
+          {unit}
+        </span>
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="accent-[var(--accent)] w-full"
+      />
+      {hint && <span className="text-secondary text-[11px]">{hint}</span>}
+    </label>
+  )
+}
+
+export function TextInput({ label, ...p }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-secondary text-[11px] leading-4">{label}</span>
+      <input {...p} className={cx('shadow-inset rounded-control w-full bg-transparent px-4 py-3 outline-none', p.className)} />
     </label>
   )
 }

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { Schemas } from './api'
+import { useAuth } from './auth'
 
 type Ticker = Schemas['MarketStats'] // the ticker channel carries the stats fields
 type Summary = Schemas['DashboardSummary']
@@ -47,6 +48,8 @@ export function useRealtimeConnection(channels: string[]) {
       ws.onopen = () => {
         attempt = 0
         setStatus('open')
+        // the browser cannot set headers on a WebSocket: the access token is the first message
+        ws?.send(JSON.stringify({ op: 'auth', token: useAuth.getState().token }))
         ws?.send(JSON.stringify({ op: 'subscribe', channels: key.split('|').filter(Boolean) }))
       }
       ws.onmessage = (e) => {

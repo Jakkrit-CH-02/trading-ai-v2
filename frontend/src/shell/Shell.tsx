@@ -1,6 +1,8 @@
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { Bell, Bot, FlaskConical, LayoutDashboard, LineChart, Moon, Search, Settings, ShieldAlert, Sparkles, Sun } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { logout, useAuth } from '../lib/auth'
+import { TotpHost } from '../lib/totp'
 import { useTheme } from '../lib/theme'
 import { BotStatusPill, IconButton, MarketStatusPill, Toaster, cx } from '../ui'
 
@@ -41,6 +43,7 @@ function Rail() {
 
 function Header({ paper }: { paper: boolean }) {
   const { theme, toggle } = useTheme()
+  const email = useAuth((s) => s.email)
   const date = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   const [weekday, ...rest] = date.split(', ')
   return (
@@ -60,13 +63,19 @@ function Header({ paper }: { paper: boolean }) {
       <IconButton icon={<ShieldAlert size={16} />} label="Kill switch" className="text-down" />
       <IconButton icon={<Bell size={16} />} label="Notifications" />
       <IconButton icon={theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />} label="Toggle theme" onClick={toggle} />
-      <span className="bg-surface shadow-raised-sm flex items-center gap-3 rounded-full py-1.5 pr-5 pl-1.5">
-        <span className="bg-ink text-on-ink grid size-8 place-items-center rounded-full text-[13px] font-semibold">T</span>
-        <span className="leading-4">
-          <span className="block text-[13px] font-semibold">Hi, Teng</span>
-          <span className="text-secondary block text-[11px]">{paper ? 'Paper account' : 'Pro account'}</span>
+      <button
+        onClick={() => void logout()}
+        title="Sign out"
+        className="bg-surface shadow-raised-sm flex items-center gap-3 rounded-full py-1.5 pr-5 pl-1.5 text-left"
+      >
+        <span className="bg-ink text-on-ink grid size-8 place-items-center rounded-full text-[13px] font-semibold">
+          {(email ?? 'T')[0].toUpperCase()}
         </span>
-      </span>
+        <span className="leading-4">
+          <span className="block max-w-[140px] truncate text-[13px] font-semibold">{email ?? 'Teng'}</span>
+          <span className="text-secondary block text-[11px]">{paper ? 'Paper · Sign out' : 'Pro · Sign out'}</span>
+        </span>
+      </button>
     </header>
   )
 }
@@ -87,6 +96,7 @@ export default function Shell({ paper = true }: { paper?: boolean }) {
         </main>
       </div>
       <Toaster />
+      <TotpHost />
     </Tooltip.Provider>
   )
 }

@@ -26,6 +26,6 @@ Pooled = equal-weight portfolio of independent per-symbol sleeves (`softtrade ba
 
 ## Conclusion / guidance when resuming
 - Do not keep tuning these four strategies: 8+ variants tested, picking the best would be overfitting.
-- Next real options: different strategy families, ML/AI scoring (SPEC Phase 5), longer history (> 3y, incl. a bear market), shorter timeframes for more trades.
+- Next real options: different strategy families, ML/AI scoring (SPEC Phase 6), longer history (> 3y, incl. a bear market), shorter timeframes for more trades.
 - Keep gate 1 criteria unchanged; do not relax them to pass.
 - Known limitations: pooled sleeves ignore cross-symbol exposure caps; S3 `rr_target` (measured move) is a reference for the R:R check only.

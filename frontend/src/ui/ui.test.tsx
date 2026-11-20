@@ -72,3 +72,21 @@ describe('ConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalledWith('123456')
   })
 })
+
+describe('NumberInput', () => {
+  it('does not rewrite a value that is already on the tick grid when it loses focus', async () => {
+    const { NumberInput } = await import('.')
+    const seen: string[] = []
+    render(<NumberInput label="Price" unit="USDT" value="115" step={0.01} onChange={(v) => seen.push(v)} />)
+    const input = screen.getByLabelText(/Price/)
+    input.focus()
+    input.blur()
+    expect(seen).toEqual([]) // "115" -> "115.00" would silently change submitted values
+    seen.length = 0
+    render(<NumberInput label="Qty" unit="BTC" value="0.10509" step={0.0001} onChange={(v) => seen.push(v)} />)
+    const q = screen.getByLabelText(/Qty/)
+    q.focus()
+    q.blur()
+    expect(seen).toEqual(['0.1051']) // a real off-grid value is still snapped
+  })
+})

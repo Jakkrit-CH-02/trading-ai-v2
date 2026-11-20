@@ -1,5 +1,6 @@
 """``/ws`` — one connection per tab, multiplexed channels (SPEC 8.2).
 
+First message: ``{"op":"auth","token":<access token>}`` (closed with 4401 otherwise).
 Client: ``{"op":"subscribe","channels":["ticker:BTCUSDT","portfolio","risk"]}``.
 Server: ``{"ch": str, "ts": epoch_ms, "data": {...}}``. Implemented: ticker:{symbol} (1/s),
 portfolio (every 5 s) and risk (on subscribe + whenever it changes)."""
@@ -15,6 +16,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.api.services import Services
 from app.api.v1 import build_summary, risk_status
+from app.auth.core import TokenError, read_token
 
 router = APIRouter()
 
@@ -55,6 +57,16 @@ async def _pump(ws: WebSocket, s: Services, subs: set[str]) -> None:
 async def ws_endpoint(ws: WebSocket) -> None:
     s: Services = ws.app.state.services
     await ws.accept()
+    # Browsers cannot set headers on a WebSocket, so the access token is the first message.
+    try:
+        first = json.loads(await asyncio.wait_for(ws.receive_text(), 5))
+        read_token(s.settings.jwt_secret.get_secret_value(), str(first.get("token", "")), "access")
+        if first.get("op") != "auth":
+            raise TokenError("auth first")
+    except (TimeoutError, WebSocketDisconnect, TokenError, json.JSONDecodeError, AttributeError):
+        with contextlib.suppress(RuntimeError):
+            await ws.close(code=4401)
+        return
     subs: set[str] = set()
     pump = asyncio.create_task(_pump(ws, s, subs))
     try:

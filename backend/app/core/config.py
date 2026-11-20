@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://softtrade:softtrade@localhost:5432/softtrade"
     redis_url: str = "redis://localhost:6379/0"
     jwt_secret: SecretStr = SecretStr("change-me")
+    # base64 32-byte key wrapping per-record data keys (API keys, TOTP secrets); see auth/crypto.py
+    master_key: SecretStr = SecretStr("")
+    telegram_bot_token: SecretStr = SecretStr("")
+    telegram_chat_id: str = ""
     symbols: list[str] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
     intervals: list[str] = ["15m", "1h", "4h"]
     # Read-only public market data. Order endpoints (testnet) arrive in Phase 3.

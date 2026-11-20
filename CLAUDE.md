@@ -31,5 +31,7 @@
 - Backfill: `cd backend && uv run softtrade backfill --symbols BTCUSDT --intervals 1h 4h --days 30` (ข้อมูล public ไม่ต้องมี key; รันซ้ำได้)
 - Backtest: `cd backend && uv run softtrade backtest --strategy s1 --symbol BTCUSDT --years 3` · เพิ่ม `--walk-forward --grid tp1_r=1.2,1.5` เพื่อดูผล out-of-sample · `--symbols BTCUSDT ETHUSDT SOLUSDT BNBUSDT XRPUSDT` รวมหลายเหรียญเป็นพอร์ตถ่วงน้ำหนักเท่ากัน (ต้อง backfill ก่อน และข้อมูล < 3 ปีจะไม่ผ่าน gate 1)
 - Testnet: `cd backend && uv run softtrade testnet-check --stage 1` (1 อ่านอย่างเดียว · 2 +ออเดอร์ทดสอบ · 3 +OrderManager) ใช้ `BINANCE_API_KEY/SECRET` จาก `.env` และเลือกระบบด้วย `BINANCE_TRADING_ENV=demo` (Binance Demo Trading, demo-api.binance.com — ค่าเริ่มต้น) หรือ `testnet` (testnet.binance.vision) key ใช้ได้เฉพาะระบบที่สร้างมา; adapter ปฏิเสธทุก host อื่นรวมถึง api.binance.com
+- Login: `cd backend && uv run softtrade gen-master-key` (ใส่ `MASTER_KEY` ใน `.env`, `JWT_SECRET` ≥ 32 ตัว) แล้ว `uv run softtrade create-user --email you@example.com` (ไม่มีหน้าสมัคร; พิมพ์ TOTP secret ให้ครั้งเดียว) · endpoint เสี่ยงต้องส่ง `X-TOTP`
+- Test ใหม่ของ Phase 5 ใช้ Postgres จริง: สร้าง DB แยก (เช่น `softtrade_test` ใน container เดียวกับ data DB) แล้วตั้ง `TEST_DATABASE_URL` — ไม่ตั้งจะข้ามเฉพาะ test ที่ต้องใช้ DB
 - Risk Engine gate ใน CI: `uv run pytest tests/test_risk_*.py --cov=app.risk --cov-branch --cov-fail-under=95`
 - Test ที่ใช้ DB จริง: ตั้ง `TEST_DATABASE_URL=postgresql+asyncpg://...` (ไม่ตั้ง = ข้าม) DB นั้นถูก downgrade/upgrade ทุกครั้ง ห้ามชี้ไปที่ DB จริง

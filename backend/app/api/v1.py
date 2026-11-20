@@ -8,13 +8,16 @@ from typing import Annotated, Literal
 import httpx
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 
 from app.api.schemas import (
     Allocation,
+    BotOut,
     BotsSummary,
     BreakerOut,
     CandleOut,
     DashboardSummary,
+    Depth,
     MarketStats,
     OrderOut,
     RiskStatus,
@@ -23,10 +26,12 @@ from app.api.schemas import (
     WatchItem,
 )
 from app.api.services import NAMES, Services, get_services
+from app.auth.deps import current_user
+from app.core.models import Bot, BotStatus, StrategyConfig
 from app.exchange.errors import ExchangeError
 from app.exchange.types import INTERVAL_MS
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(current_user)])
 Svc = Annotated[Services, Depends(get_services)]
 Interval = Literal["15m", "1h", "4h", "1d"]
 
@@ -99,6 +104,15 @@ async def candles(
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
 ) -> list[CandleOut]:
     return await load_candles(s, _check_symbol(s, symbol), interval, limit)
+
+
+@router.get("/markets/{symbol}/depth", response_model=Depth)
+async def depth(s: Svc, symbol: str, limit: Annotated[int, Query(ge=5, le=20)] = 10) -> Depth:
+    symbol = _check_symbol(s, symbol)
+    try:
+        return await s.market.depth(symbol, limit)
+    except (httpx.HTTPError, KeyError, ValueError) as e:
+        raise HTTPException(502, "market data unavailable") from e
 
 
 @router.get("/markets/{symbol}/stats", response_model=MarketStats)
@@ -218,25 +232,58 @@ async def sentiment(s: Svc) -> Sentiment:
     return v
 
 
-@router.get("/bots", response_model=BotsSummary)
-async def bots(s: Svc) -> BotsSummary:
-    """No bot runtime yet (Phase 5): an honest empty list rather than invented bots."""
+@router.get("/bots/summary", response_model=BotsSummary)
+async def bots_summary(s: Svc) -> BotsSummary:
+    """Dashboard card. Open risk stays 0 until a trading engine reports positions."""
+    out: list[BotOut] = []
+    if s.db is not None:
+        async with s.db() as db:
+            rows = (await db.execute(select(Bot).order_by(Bot.created_at.desc()))).scalars().all()
+            for b in rows:
+                cfg = (
+                    (
+                        await db.execute(
+                            select(StrategyConfig.strategy)
+                            .where(StrategyConfig.bot_id == b.id, StrategyConfig.is_active)
+                            .order_by(StrategyConfig.version.desc())
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                out.append(
+                    BotOut(
+                        id=str(b.id),
+                        name=b.name,
+                        strategy=(cfg or "?").upper(),
+                        status=_pill(b.status),
+                    )
+                )
+    running = sum(1 for b in out if b.status == "RUNNING")
     return BotsSummary(
-        bots=[],
-        running=0,
+        bots=out,
+        running=running,
         open_risk_pct=Decimal(0),
         open_risk_cap_pct=s.profile.max_open_risk * 100,
     )
+
+
+def _pill(status: BotStatus) -> Literal["RUNNING", "PAUSED", "KILLED"]:
+    if status == BotStatus.KILLED:
+        return "KILLED"
+    return "RUNNING" if status in (BotStatus.PAPER, BotStatus.RUNNING) else "PAUSED"
 
 
 @router.get("/risk/status", response_model=RiskStatus)
 async def risk_status(s: Svc) -> RiskStatus:
     b = s.breakers  # None until a trading engine attaches; then nothing can be blocked either
     now = datetime.now(UTC)
-    active = b.active(now) if b else []
+    active = [
+        x for x in (b.active(now) if b else []) if s.engine_attached or str(x.kind) != "STALE_DATA"
+    ]
     return RiskStatus(
         kill_switch=bool(b and b.kill_switch_active),
-        entries_blocked=bool(b and b.entries_blocked(now)),
+        entries_blocked=bool(b and (b.kill_switch_active or bool(active))),
         breakers=[BreakerOut(kind=str(x.kind), detail=x.detail, until=x.until) for x in active],
         open_risk_cap_pct=s.profile.max_open_risk * 100,
     )

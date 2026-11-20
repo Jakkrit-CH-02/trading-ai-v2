@@ -196,6 +196,11 @@ class BinanceTestnetAdapter(TradingAdapter):
             )
         return self._filters[symbol]
 
+    async def account_info(self) -> dict[str, Any]:
+        """Raw signed ``GET /api/v3/account`` (canTrade / canWithdraw / permissions)."""
+        res: dict[str, Any] = await self._request("GET", "/api/v3/account", signed=True)
+        return res
+
     async def balances(self) -> dict[str, Balance]:
         acct = await self._request("GET", "/api/v3/account", signed=True)
         return {
