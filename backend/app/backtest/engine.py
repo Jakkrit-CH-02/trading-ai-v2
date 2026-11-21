@@ -15,9 +15,11 @@ per-symbol exposure cap). The real Risk Engine arrives in Phase 3 and replaces i
 """
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import ROUND_DOWN, Decimal
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -140,6 +142,7 @@ def run_backtest(
     start: int = 0,
     end: int | None = None,
     initial_equity: Decimal | None = None,
+    ml_score: Callable[[Features, int, Signal], float] | None = None,
 ) -> BacktestResult:
     cfg = cfg or BacktestConfig()
     fee, slip = cfg.fees.taker, cfg.fees.slippage
@@ -314,8 +317,17 @@ def run_backtest(
 
         # 4. decide at the close of bar i (entry happens next bar)
         if pos is None and pending is None and i < n - 1:
+            scorer_i: Callable[[Signal], float] | None = None
+            if ml_score is not None:
+                scorer_i = partial(ml_score, feats, i)
             bd = decide_at_close(
-                strategy, feats, i, cfg.weights, cfg.min_quote_volume_24h, i < cooldown_until
+                strategy,
+                feats,
+                i,
+                cfg.weights,
+                cfg.min_quote_volume_24h,
+                i < cooldown_until,
+                scorer_i,
             )
             if bd is not None:
                 rec2 = SignalRecord(bd.signal, bd.score, bd.decision, bd.reason)

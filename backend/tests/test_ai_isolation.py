@@ -60,3 +60,10 @@ def test_only_the_ai_worker_container_receives_the_anthropic_key() -> None:
         service = compose.split(f"\n  {name}:")[1]
         service = service.split("\n\n")[0]
         assert "ANTHROPIC" not in service, f"{name} must not get the Anthropic key ({part})"
+
+
+def test_the_ml_worker_container_gets_no_keys_of_any_kind() -> None:
+    compose = (ROOT.parent / "docker-compose.yml").read_text()
+    block = compose.split("  ml-worker:")[1].split("\n  api:")[0]
+    for secret in ("MASTER_KEY", "BINANCE_API", "JWT_SECRET", "ANTHROPIC", "TELEGRAM"):
+        assert secret not in block

@@ -403,3 +403,32 @@ class AuditLog(Timestamps, Base):
     after: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     ip: Mapped[str | None] = mapped_column(String(64))
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MlModelStatus(enum.StrEnum):
+    CANDIDATE = "candidate"  # trained, not (yet) better than the active model
+    ACTIVE = "active"  # at most one per strategy: its S_ml is used
+    RETIRED = "retired"  # replaced or rolled back; kept for rollback and audit
+    SUSPENDED = "suspended"  # monitoring switched it off (drift / precision): S_ml = 50
+
+
+class MlModel(Timestamps, Base):
+    """One trained LightGBM model per strategy and version. The model text lives in the row (a few
+    hundred KB): one backup, no shared volume, and the runner reads it with the data it scores."""
+
+    __tablename__ = "ml_models"
+
+    id: Mapped[uuid.UUID] = _pk()
+    strategy: Mapped[str] = mapped_column(String(8))
+    version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16))
+    trained_from: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    trained_to: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    n_samples: Mapped[int] = mapped_column(Integer)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSONB)  # cv, holdout, promotion decision
+    params: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    psi_ref: Mapped[dict[str, Any]] = mapped_column(JSONB)  # training bin shares per feature
+    model_text: Mapped[str] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (UniqueConstraint("strategy", "version", name="uq_ml_model_version"),)

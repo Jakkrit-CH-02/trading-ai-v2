@@ -3,6 +3,7 @@
 Stage 1 (this module) judges and records signals. It places no orders yet; ``act`` is the
 hook the execution layer plugs into."""
 
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
@@ -18,6 +19,7 @@ from app.backtest.registry import default_params, make_strategy
 from app.core.models import Bot, BotStatus, Decision, RiskEvent, StrategyConfig
 from app.exchange.types import INTERVAL_MS
 from app.marketdata.store import CandleStore
+from app.ml.scorer import ScorerPool
 from app.runtime.frames import DataGap, load_features
 from app.runtime.signals_store import in_cooldown, record_signal
 from app.strategies.base import Strategy
@@ -128,6 +130,7 @@ class BotRunner:
     max_signal_age_s: float = 300.0
     now: Callable[[], datetime] = lambda: datetime.now(UTC)
     act: Callable[[Judged], Awaitable[None]] | None = None
+    scorers: ScorerPool | None = None  # active S_ml models; None = S_ml stays neutral (50)
     _strategies: dict[uuid.UUID, Strategy] = field(default_factory=dict)
 
     def strategy_for(self, bot: BotSpec) -> Strategy:
@@ -165,10 +168,12 @@ class BotRunner:
     async def judge(
         self, bot: BotSpec, strat: Strategy, symbol: str, bar_open: datetime
     ) -> Judged | None:
+        scorer = await self.scorers.get(bot.strategy, time.time()) if self.scorers else None
         try:
             feats = await load_features(
-                self.candles, strat, symbol, bar_open, wait_s=self.wait_for_htf_s
-            )
+                self.candles, strat, symbol, bar_open, wait_s=self.wait_for_htf_s,
+                with_ml=scorer is not None,
+            )  # fmt: skip
         except DataGap as e:  # fail safe: no guess, no trade; the next bar tries again
             log.warning("runner.data_gap", bot=bot.name, symbol=symbol, error=str(e))
             await self._event(bot, "DATA_GAP", "warning", {"symbol": symbol, "detail": str(e)})
@@ -178,8 +183,9 @@ class BotRunner:
             self.sessions, bot.id, symbol, feats.time(i), self.config.cooldown_hours
         )
         bd = decide_at_close(
-            strat, feats, i, self.config.weights, self.config.min_quote_volume_24h, cooling
-        )
+            strat, feats, i, self.config.weights, self.config.min_quote_volume_24h, cooling,
+            scorer.for_bar(feats, i) if scorer is not None else None,
+        )  # fmt: skip
         if bd is None:
             return None
         age = self.now() - (bar_open + timedelta(milliseconds=INTERVAL_MS[strat.exec_interval]))

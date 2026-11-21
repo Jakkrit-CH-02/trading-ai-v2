@@ -2,6 +2,7 @@
 score. ONE function used by the backtester and by the live runner (SPEC principle 2), so a
 bar can never be judged differently in backtest and in paper/live."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.core.models import Decision
@@ -26,13 +27,15 @@ def decide_at_close(
     weights: ScoreWeights,
     min_quote_volume_24h: float,
     in_cooldown: bool,
+    ml_score: Callable[[Signal], float] | None = None,
 ) -> BarDecision | None:
     """``None`` = the strategy has no signal on this bar. Otherwise every signal is returned
     with its fate (TAKEN / SKIPPED / REJECTED) and the reason, so it can be recorded."""
     sig = strategy.evaluate(feats, i)
     if sig is None:
         return None
-    sc = score_signal(sig.s_tech, w=weights)
+    s_ml = ml_score(sig) if ml_score is not None else 50.0  # 50 = neutral, no model
+    sc = score_signal(sig.s_tech, s_ml, w=weights)
     qv = feats["qv24h"][i] if "qv24h" in feats.cols else float("inf")
     if min_quote_volume_24h > 0 and not qv >= min_quote_volume_24h:
         return BarDecision(sig, sc, Decision.REJECTED, "liquidity filter")

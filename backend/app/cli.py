@@ -174,6 +174,71 @@ async def create_user_cmd(email: str) -> int:
     return 0
 
 
+async def ml_train(args: argparse.Namespace) -> int:
+    from app.ml.pipeline import train_and_register
+    from app.ml.train import TrainConfig
+
+    configure_logging("ml")
+    engine = make_engine()
+    sessions = make_session_factory(engine)
+    try:
+        try:
+            r = await train_and_register(
+                sessions, PgCandleStore(sessions), args.strategy.lower(), args.symbols, args.years,
+                TrainConfig(optuna_trials=args.trials),
+            )  # fmt: skip
+        except ValueError as e:
+            print(f"{args.strategy}: no model trained - {e}")
+            return 1
+
+        def f(d: dict[str, float]) -> dict[str, float]:
+            return {k: round(v, 3) for k, v in d.items() if v == v}
+
+        print(f"{r.n_signals} labelled signals")
+        print(f"cross-validation (purged walk-forward): {f(r.cv)}")
+        print(f"holdout (never trained on):             {f(r.holdout)}")
+        print(f"out-of-sample backtest baseline: {r.baseline}")
+        print(f"out-of-sample backtest with ML:  {r.with_ml}")
+        print(f"backtest: {r.backtest_summary}")
+        state = "PROMOTED to active" if r.promoted else "stored as candidate"
+        print(f"model v{r.version}: {state} ({r.reason})")
+    finally:
+        await engine.dispose()
+    return 0
+
+
+async def ml_status() -> int:
+    from sqlalchemy import select
+
+    from app.core.models import MlModel
+
+    engine = make_engine()
+    try:
+        async with make_session_factory(engine)() as db:
+            for m in (
+                await db.execute(select(MlModel).order_by(MlModel.strategy, MlModel.version))
+            ).scalars():
+                h = (m.metrics or {}).get("holdout") or {}
+                span = f"{m.trained_from:%Y-%m-%d}..{m.trained_to:%Y-%m-%d}"
+                auc = h.get("auc")
+                print(f"{m.strategy} v{m.version} {m.status:9} n={m.n_samples} AUC={auc} {span}")
+    finally:
+        await engine.dispose()
+    return 0
+
+
+async def ml_rollback(strategy: str) -> int:
+    from app.ml.registry import rollback
+
+    engine = make_engine()
+    try:
+        m = await rollback(make_session_factory(engine), strategy.upper())
+        print(f"{strategy.upper()}: now v{m.version}" if m else "nothing to roll back to")
+        return 0 if m else 1
+    finally:
+        await engine.dispose()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="softtrade")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -201,6 +266,16 @@ def main(argv: list[str] | None = None) -> int:
     cu = sub.add_parser("create-user", help="create the (only) login; prints the TOTP secret once")
     cu.add_argument("--email", required=True)
     sub.add_parser("gen-master-key", help="print a new MASTER_KEY for .env")
+    mt = sub.add_parser("ml-train", help="train the S_ml model; promote only if it earns it")
+    mt.add_argument("--strategy", required=True, choices=["s1", "s2", "s3"])
+    mt.add_argument(
+        "--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
+    )
+    mt.add_argument("--years", type=float, default=3.0)
+    mt.add_argument("--trials", type=int, default=25, help="Optuna trials")
+    sub.add_parser("ml-status", help="list stored ML models and their status")
+    mr = sub.add_parser("ml-rollback", help="re-activate the previous ML model version")
+    mr.add_argument("--strategy", required=True, choices=["s1", "s2", "s3"])
     args = parser.parse_args(argv)
 
     s = get_settings()
@@ -213,6 +288,12 @@ def main(argv: list[str] | None = None) -> int:
         return check(args.stage)
     if args.cmd == "backtest":
         return asyncio.run(backtest(args))
+    if args.cmd == "ml-train":
+        return asyncio.run(ml_train(args))
+    if args.cmd == "ml-status":
+        return asyncio.run(ml_status())
+    if args.cmd == "ml-rollback":
+        return asyncio.run(ml_rollback(args.strategy))
     if args.cmd == "gen-master-key":
         from app.auth.crypto import generate_master_key
 

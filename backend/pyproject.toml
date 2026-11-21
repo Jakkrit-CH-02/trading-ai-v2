@@ -23,6 +23,8 @@ dependencies = [
   "cryptography>=50.0.2",
   "anthropic>=2.12.0",
   "feedparser>=6.0.14",
+  "lightgbm>=4.7.0",
+  "optuna>=5.1.0",
 ]
 
 [project.scripts]

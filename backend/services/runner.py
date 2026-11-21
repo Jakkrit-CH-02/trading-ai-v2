@@ -20,6 +20,7 @@ from app.exchange.types import ms_to_dt
 from app.execution.pg_store import PgExecutionStore
 from app.marketdata.publisher import STREAM
 from app.marketdata.store import PgCandleStore
+from app.ml.scorer import ScorerPool
 from app.notify.telegram import make_notifier
 from app.runtime.accounts import AccountPool, binance_adapter_factory
 from app.runtime.executor import Executor
@@ -83,7 +84,7 @@ async def main() -> None:
         s.symbols,
         notifier=make_notifier(s.telegram_bot_token.get_secret_value(), s.telegram_chat_id),
     )
-    runner = BotRunner(sessions, candles, act=executor.act)
+    runner = BotRunner(sessions, candles, act=executor.act, scorers=ScorerPool(sessions))
     beat = asyncio.create_task(heartbeat(redis))
     supervisor = asyncio.create_task(supervise(executor))
     log.info("runner.started")

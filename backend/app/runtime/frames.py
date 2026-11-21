@@ -11,6 +11,7 @@ from app.backtest.data import BTC
 from app.exchange.types import INTERVAL_MS
 from app.marketdata.indicators import klines_to_frame
 from app.marketdata.store import CandleStore
+from app.ml.features import with_ml_features
 from app.strategies.base import MarketFrames, Strategy
 from app.strategies.features import Features
 
@@ -37,6 +38,7 @@ async def load_features(
     wait_s: float = 0.0,
     poll_s: float = 2.0,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    with_ml: bool = False,
 ) -> Features:
     """Features whose last bar is the closed bar that opened at ``bar_open``.
 
@@ -71,6 +73,8 @@ async def load_features(
     btc = frames.get(f"{BTC}:4h") if symbol != BTC else None
     data = MarketFrames(symbol, own, btc)  # type: ignore[arg-type]
     feats = strategy.prepare(data)
+    if with_ml:  # the same ml_* columns the backtest adds (app.ml.features)
+        feats = with_ml_features(feats, data)
     if feats.time(len(feats) - 1) != bar_open:
         raise DataGap(f"{symbol} {exec_iv}: newest bar is not {bar_open:%Y-%m-%d %H:%M}")
     return feats

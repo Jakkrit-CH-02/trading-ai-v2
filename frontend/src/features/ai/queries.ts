@@ -30,3 +30,6 @@ export type ChatEvent =
   | { type: 'proposal'; action: 'pause_bot'; bot_id: string; bot_name: string; reason: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
+
+export type MlModel = Schemas['MlModelOut']
+export const useMlModels = () => useQuery({ queryKey: ['ml-models'], queryFn: () => api<MlModel[]>('/ml/models'), refetchInterval: 120_000 })

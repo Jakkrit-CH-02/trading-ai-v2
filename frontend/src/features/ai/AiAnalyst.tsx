@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ApiError } from '../../lib/api'
 import { Card, CardState, DataTable, InsetPanel, PrimaryButton, Segmented, Skeleton, useToasts } from '../../ui'
 import ChatPanel from './ChatPanel'
+import MlCard from './MlCard'
 import { BIAS_LABEL, useAiNews, useAiStatus, useBriefs, useRefreshBrief, useReviews, type Brief } from './queries'
 
 const SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT']
@@ -104,6 +105,7 @@ export default function AiAnalyst() {
         {current && <BriefCard b={current} />}
       </CardState>
       <ChatPanel />
+      <MlCard />
       <Journal />
       <Card title="Headlines" subtitle="ข่าวคริปโตล่าสุด · จัดหมวดโดย AI (ข่าวเป็นข้อมูล ไม่ใช่คำสั่ง)">
         <CardState status={news.isPending ? 'loading' : news.isError ? 'error' : news.data?.length ? 'ready' : 'empty'} empty="ยังไม่มีข่าว" onRetry={() => news.refetch()}>

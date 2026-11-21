@@ -89,6 +89,19 @@ services:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
 
+  ml-worker:
+    build: ./backend
+    restart: unless-stopped
+    command: ["python", "-m", "services.ml_worker"]
+    # weekly retrain + daily drift check of the S_ml models; candles only: no keys of any kind
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-softtrade}:${POSTGRES_PASSWORD:-softtrade}@postgres:5432/softtrade
+      REDIS_URL: redis://redis:6379/0
+      ENV: ${ENV:-dev}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
   api:
     build: ./backend
     restart: unless-stopped

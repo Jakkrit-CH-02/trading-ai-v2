@@ -264,7 +264,7 @@ describe('AI Analyst', () => {
   const news = [{ id: 'n1', source: 'CoinDesk', title: 'ETF approved', url: 'https://x.test/a', published_at: '2026-11-21T05:00:00Z', symbols: ['BTC'], sentiment: 0.6, severity: 0.4, category: 'regulation' }]
 
   it('shows the brief, the spend and the headlines', async () => {
-    mockApi({ 'GET /ai/briefs': () => [brief], 'GET /ai/news': () => news, 'GET /ai/status': () => status, 'GET /ai/reviews': () => [] })
+    mockApi({ 'GET /ai/briefs': () => [brief], 'GET /ai/news': () => news, 'GET /ai/status': () => status, 'GET /ai/reviews': () => [], 'GET /ml/models': () => [] })
     renderAt('/ai')
     expect(await screen.findByText('บรรทัดแรก')).toBeInTheDocument()
     expect(screen.getByText(/Bullish · S_ai 72/)).toBeInTheDocument()
@@ -304,7 +304,7 @@ describe('AI Analyst', () => {
   })
 
   const sse = (...evs: object[]) => ({ __sse: evs.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') })
-  const aiBase = { 'GET /ai/briefs': () => [brief], 'GET /ai/news': () => news, 'GET /ai/status': () => status, 'GET /ai/reviews': () => [] }
+  const aiBase = { 'GET /ai/briefs': () => [brief], 'GET /ai/news': () => news, 'GET /ai/status': () => status, 'GET /ai/reviews': () => [], 'GET /ml/models': () => [] }
 
   it('parses SSE frames, keeps a partial frame for later and skips a broken one', () => {
     const a = parseSse('data: {"type":"delta","text":"a"}\n\ndata: {"type":"do')
@@ -366,5 +366,32 @@ describe('AI Analyst', () => {
     expect(screen.getByText('+1.50R', { exact: false })).toBeInTheDocument()
     expect(screen.getByText('สรุปรายสัปดาห์')).toBeInTheDocument()
     expect(screen.getByText('ตัวอย่างน้อย')).toBeInTheDocument()
+  })
+
+  const mlModels = [
+    { strategy: 'S1', version: 2, status: 'candidate', created_at: '2026-11-21T10:00:00Z', trained_from: '2023-12-27T00:00:00Z', trained_to: '2026-10-20T00:00:00Z', n_samples: 889, cv_auc: 0.58, holdout_auc: 0.616, backtest: { baseline: { expectancy_r: -0.087, trades: 132 }, with_ml: { expectancy_r: -0.058, trades: 125 }, improves: false }, reason: 'out-of-sample backtest does not improve', note: null },
+    { strategy: 'S1', version: 1, status: 'active', created_at: '2026-11-14T10:00:00Z', trained_from: '2023-12-27T00:00:00Z', trained_to: '2026-10-13T00:00:00Z', n_samples: 850, cv_auc: 0.6, holdout_auc: 0.63, backtest: null, reason: null, note: null },
+  ]
+
+  it('shows ML models with their evidence and says plainly when none is active', async () => {
+    mockApi({ ...aiBase, 'GET /ml/models': () => [mlModels[0]] })
+    renderAt('/ai')
+    expect(await screen.findByText(/S1 v2 · ยังไม่ผ่านเกณฑ์/)).toBeInTheDocument()
+    expect(screen.getByText(/AUC holdout 0.616/)).toBeInTheDocument()
+    expect(screen.getByText(/-0.087R → -0.058R ต่อเทรด \(132 → 125 เทรด\)/)).toBeInTheDocument()
+    expect(screen.getByText(/S_ml = 50 เหมือนเดิม/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Rollback/ })).not.toBeInTheDocument()
+  })
+
+  it('rolls an active model back only after the user enters a 2FA code', async () => {
+    mockApi({ ...aiBase, 'GET /ml/models': () => mlModels, 'POST /ml/S1/rollback': () => mlModels[1] })
+    renderAt('/ai')
+    await userEvent.click(await screen.findByRole('button', { name: /Rollback S1/ }))
+    expect(calls.some((c) => c.path === '/ml/S1/rollback')).toBe(false) // waits for the code
+    const dlg = await screen.findByRole('dialog')
+    await userEvent.type(within(dlg).getByLabelText(/TOTP/), '123456')
+    await userEvent.click(within(dlg).getByRole('button', { name: /ยืนยัน|Confirm|OK/ }))
+    await waitFor(() => expect(calls.find((c) => c.path === '/ml/S1/rollback')?.init?.method).toBe('POST'))
+    expect(new Headers(calls.find((c) => c.path === '/ml/S1/rollback')?.init?.headers).get('X-TOTP')).toBe('123456')
   })
 })
