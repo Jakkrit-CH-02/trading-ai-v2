@@ -240,6 +240,14 @@ class Signal(Timestamps, Base):
     score: Mapped[Decimal | None] = mapped_column(_num())
     decision: Mapped[Decision] = mapped_column(_enum(Decision))
     reject_reason: Mapped[str | None] = mapped_column(Text)
+    bar_time: Mapped[datetime | None] = _ts()  # open_time of the closed bar that fired it
+    exit_plan: Mapped[dict[str, Any] | None] = mapped_column(JSONB)  # trail / time stop / ...
+    reasons: Mapped[dict[str, Any] | None] = mapped_column(JSONB)  # explainability (SPEC 1.5)
+
+    # one decision per bot, symbol, strategy and bar: replaying a candle can never double-fire
+    __table_args__ = (
+        UniqueConstraint("bot_id", "symbol", "strategy", "bar_time", name="uq_signal_bar"),
+    )
 
 
 class AiAnalysis(Timestamps, Base):
