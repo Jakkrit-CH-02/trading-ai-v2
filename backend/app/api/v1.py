@@ -27,9 +27,10 @@ from app.api.schemas import (
 )
 from app.api.services import NAMES, Services, get_services
 from app.auth.deps import current_user
-from app.core.models import Bot, BotStatus, StrategyConfig
+from app.core.models import Bot, BotStatus, Order, StrategyConfig
 from app.exchange.errors import ExchangeError
 from app.exchange.types import INTERVAL_MS
+from app.execution.pg_store import order_info
 
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(current_user)])
 Svc = Annotated[Services, Depends(get_services)]
@@ -199,10 +200,14 @@ async def summary(s: Svc) -> DashboardSummary:
 
 
 @router.get("/orders", response_model=list[OrderOut])
-async def orders(s: Svc, status: Literal["all", "open", "filled"] = "all") -> list[OrderOut]:
-    """Open orders come from the exchange. Filled/cancelled history needs the execution store
-    (not built yet), so those filters return only what the exchange still reports as open."""
-    if s.trading is None or status == "filled":
+async def orders(
+    s: Svc, status: Literal["all", "open", "filled", "history"] = "all", limit: int = 100
+) -> list[OrderOut]:
+    """``open`` comes from the exchange. ``history`` is every order this system placed (all
+    legs, any final status, newest first) from the execution store."""
+    if status in ("history", "filled"):
+        return await order_history(s, filled_only=status == "filled", limit=min(max(limit, 1), 500))
+    if s.trading is None:
         return []
     try:
         infos = await s.trading.open_orders()
@@ -222,6 +227,39 @@ async def orders(s: Svc, status: Literal["all", "open", "filled"] = "all") -> li
         )
         for o in infos
     ]
+
+
+async def order_history(s: Services, filled_only: bool, limit: int) -> list[OrderOut]:
+    if s.db is None:
+        return []
+    q = (
+        select(Order, Bot.name)
+        .outerjoin(Bot, Bot.id == Order.bot_id)
+        .order_by(Order.created_at.desc())
+        .limit(limit)
+    )
+    if filled_only:
+        q = q.where(Order.status == "FILLED")
+    async with s.db() as db:
+        rows = (await db.execute(q)).all()
+    out: list[OrderOut] = []
+    for o, bot_name in rows:
+        info = order_info(o)
+        out.append(
+            OrderOut(
+                id=o.client_order_id,
+                symbol=o.symbol,
+                side="BUY" if str(o.side).upper().endswith("BUY") else "SELL",
+                type=o.type,
+                status=o.status,
+                price=info.avg_price or o.price,
+                qty=o.qty,
+                executed_qty=info.executed_qty,
+                ts=o.created_at,
+                source=f"bot:{bot_name}" if bot_name else "manual",
+            )
+        )
+    return out
 
 
 @router.get("/sentiment", response_model=Sentiment)

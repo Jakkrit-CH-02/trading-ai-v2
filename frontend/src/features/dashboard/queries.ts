@@ -8,7 +8,7 @@ export const useCandles = (symbol: string, interval: string, limit: number) =>
   useQuery({ queryKey: ['candles', symbol, interval, limit], queryFn: () => api<Schemas['CandleOut'][]>(`/markets/${symbol}/candles?interval=${interval}&limit=${limit}`), refetchInterval: 60_000 })
 export const useSentiment = () => useQuery({ queryKey: ['sentiment'], queryFn: () => api<Schemas['Sentiment']>('/sentiment'), staleTime: 600_000 })
 export const useBots = () => useQuery({ queryKey: ['bots'], queryFn: () => api<Schemas['BotsSummary']>('/bots/summary') })
-export const useOrders = (status: 'all' | 'open' | 'filled') =>
+export const useOrders = (status: 'all' | 'open' | 'filled' | 'history') =>
   useQuery({ queryKey: ['orders', status], queryFn: () => api<Schemas['OrderOut'][]>(`/orders?status=${status}`), refetchInterval: 15_000 })
 
 /** Map a query result onto the four card states of SPEC 10.2. */

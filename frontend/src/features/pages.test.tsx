@@ -16,7 +16,7 @@ vi.mock('../ui/PriceChart', async (orig) => ({
   PriceChart: () => <div data-testid="price-chart" />,
 }))
 
-type Handler = (init?: RequestInit) => unknown | { __status: number; body: unknown }
+type Handler = (init?: RequestInit, url?: string) => unknown | { __status: number; body: unknown }
 const calls: { path: string; init?: RequestInit }[] = []
 
 function mockApi(routes: Record<string, Handler>) {
@@ -28,7 +28,7 @@ function mockApi(routes: Record<string, Handler>) {
       calls.push({ path, init })
       const h = routes[`${init?.method ?? 'GET'} ${path}`]
       if (!h) return new Response('{"detail":"not found"}', { status: 404 })
-      const r = h(init) as { __status?: number; body?: unknown }
+      const r = h(init, url) as { __status?: number; body?: unknown }
       return r && r.__status ? new Response(JSON.stringify(r.body), { status: r.__status }) : new Response(JSON.stringify(r), { status: 200 })
     }),
   )
@@ -192,6 +192,16 @@ describe('Trade', () => {
     const sent = JSON.parse(String(calls.find((c) => c.path === '/orders' && c.init?.method === 'POST')!.init?.body))
     expect(sent).toMatchObject({ symbol: 'BTCUSDT', order_type: 'LIMIT', entry: '100', stop: '95', tp1: '115' })
     expect(sent.qty).toBeUndefined() // the user never sets the size
+  })
+  it('shows every order the system placed in Order history, with its source', async () => {
+    const row = { id: 'st1-e', symbol: 'BTCUSDT', side: 'BUY', type: 'MARKET', status: 'FILLED', price: '100.5', qty: '10', executed_qty: '10', ts: '2026-11-21T01:00:00Z', source: 'manual' }
+    const stop = { ...row, id: 'st1-r0', side: 'SELL', type: 'STOP_LOSS_LIMIT', status: 'NEW', executed_qty: '0', source: 'bot:Alpha' }
+    mockApi({ ...base, 'GET /orders': (_i, url) => (url?.includes('status=history') ? [row, stop] : []) })
+    renderAt('/trade')
+    expect(await screen.findByText('bot:Alpha')).toBeInTheDocument()
+    expect(screen.getByText('manual')).toBeInTheDocument()
+    expect(screen.getByText('stop loss limit')).toBeInTheDocument()
+    expect(screen.getByText('10 / 10')).toBeInTheDocument()
   })
   it('lists the failed checks and keeps Buy disabled when the Risk Engine rejects', async () => {
     const rejected = { ...approved, approved: false, qty: '0', reasons: ['RR_TOO_LOW'], checks: [{ name: 'risk_reward', passed: false, detail: 'R:R 0.6 < 1.5' }] }

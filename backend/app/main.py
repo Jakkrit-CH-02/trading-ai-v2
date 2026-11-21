@@ -27,6 +27,7 @@ from app.core.db import make_engine, make_session_factory
 from app.core.logging import configure_logging
 from app.core.models import Bot, BotStatus
 from app.exchange.binance_testnet import ENVIRONMENTS, BinanceTestnetAdapter
+from app.execution.pg_store import PgExecutionStore
 from app.marketdata.store import PgCandleStore
 from app.notify.telegram import make_notifier
 
@@ -55,6 +56,7 @@ def build_services(settings: Settings) -> Services:
         trading=trading,
         db=factory,
         notifier=notifier,
+        exec_store=PgExecutionStore(factory),
     )
 
 

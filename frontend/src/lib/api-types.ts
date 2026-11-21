@@ -203,8 +203,8 @@ export interface paths {
         };
         /**
          * Orders
-         * @description Open orders come from the exchange. Filled/cancelled history needs the execution store
-         *     (not built yet), so those filters return only what the exchange still reports as open.
+         * @description ``open`` comes from the exchange. ``history`` is every order this system placed (all
+         *     legs, any final status, newest first) from the execution store.
          */
         get: operations["orders_api_v1_orders_get"];
         put?: never;
@@ -1735,7 +1735,8 @@ export interface operations {
     orders_api_v1_orders_get: {
         parameters: {
             query?: {
-                status?: "all" | "open" | "filled";
+                status?: "all" | "open" | "filled" | "history";
+                limit?: number;
             };
             header?: {
                 authorization?: string | null;

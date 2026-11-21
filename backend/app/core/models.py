@@ -310,7 +310,7 @@ class Position(Timestamps, Base):
     __tablename__ = "positions"
 
     id: Mapped[uuid.UUID] = _pk()
-    bot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("bots.id"))
+    bot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("bots.id"))  # NULL = manual
     symbol: Mapped[str] = mapped_column(String(20))
     side: Mapped[Side] = mapped_column(_enum(Side))
     qty: Mapped[Decimal] = mapped_column(_num())
@@ -320,6 +320,9 @@ class Position(Timestamps, Base):
     status: Mapped[PositionStatus] = mapped_column(_enum(PositionStatus))
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = _ts()
+    # execution bookkeeping (stop/TP order ids, trail version...): the whole execution.Position
+    entry_cid: Mapped[str | None] = mapped_column(String(64), unique=True)
+    state: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
 class Trade(Timestamps, Base):
