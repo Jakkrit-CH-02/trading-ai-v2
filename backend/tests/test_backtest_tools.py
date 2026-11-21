@@ -127,7 +127,7 @@ def test_param_robustness_keeps_integer_parameters_integral() -> None:
 
 
 def test_registry_builds_all_strategies_and_rejects_bad_input() -> None:
-    assert strategy_names() == ["s1", "s2", "s3", "s4"]
+    assert strategy_names() == ["s1", "s2", "s3", "s4", "s5"]
     for name in strategy_names():
         assert make_strategy(name).name == name
     with pytest.raises(ValueError, match="unknown strategy"):
