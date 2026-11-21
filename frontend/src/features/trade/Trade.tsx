@@ -145,6 +145,30 @@ function OpenOrders() {
   )
 }
 
+function OrderHistory() {
+  const q = useOrders('history')
+  return (
+    <Card title="Order history" subtitle="ทุกออเดอร์ที่ระบบส่ง (รวม stop / take-profit) ล่าสุดก่อน เก็บใน DB" className="xl:col-span-3">
+      <CardState status={q.isPending ? 'loading' : q.isError ? 'error' : q.data?.length ? 'ready' : 'empty'} empty="ยังไม่เคยส่งออเดอร์" onRetry={() => q.refetch()} skeleton={<Skeleton className="h-24" />}>
+        <DataTable
+          rowKey={(o) => o.id}
+          rows={q.data ?? []}
+          columns={[
+            { key: 'ts', header: 'Time', render: (o) => (o.ts ? new Date(o.ts).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '—') },
+            { key: 'pair', header: 'Pair', render: (o) => <strong>{base(o.symbol)}/USDT</strong> },
+            { key: 'side', header: 'Side', render: (o) => <span className={o.side === 'BUY' ? 'text-up' : 'text-down'}>{o.side === 'BUY' ? 'Buy' : 'Sell'}</span> },
+            { key: 'type', header: 'Type', render: (o) => o.type.replace(/_/g, ' ').toLowerCase() },
+            { key: 'price', header: 'Price', render: (o) => (o.price ? fmtPrice(num(o.price)) : '—') },
+            { key: 'qty', header: 'Filled / Amount', render: (o) => `${num(o.executed_qty)} / ${num(o.qty)}` },
+            { key: 'status', header: 'Status', render: (o) => o.status.replace(/_/g, ' ').toLowerCase() },
+            { key: 'src', header: 'Source', render: (o) => o.source ?? '—' },
+          ]}
+        />
+      </CardState>
+    </Card>
+  )
+}
+
 export default function Trade() {
   const [symbol, setSymbol] = useState('BTCUSDT')
   const [range, setRange] = useState<keyof typeof RANGES>('1H')
@@ -194,6 +218,7 @@ export default function Trade() {
         <OrderBook symbol={symbol} />
       </div>
       <OpenOrders />
+      <OrderHistory />
     </div>
   )
 }

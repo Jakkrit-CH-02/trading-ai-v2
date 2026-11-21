@@ -203,8 +203,8 @@ export interface paths {
         };
         /**
          * Orders
-         * @description Open orders come from the exchange. Filled/cancelled history needs the execution store
-         *     (not built yet), so those filters return only what the exchange still reports as open.
+         * @description ``open`` comes from the exchange. ``history`` is every order this system placed (all
+         *     legs, any final status, newest first) from the execution store.
          */
         get: operations["orders_api_v1_orders_get"];
         put?: never;
@@ -451,6 +451,46 @@ export interface paths {
         };
         /** Trades */
         get: operations["trades_api_v1_trades_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bots/{bot_id}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bot Logs
+         * @description Everything the bot did and why, newest first (SPEC 1.5: explainable).
+         */
+        get: operations["bot_logs_api_v1_bots__bot_id__logs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runner/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Runner Status
+         * @description Is the bot runner alive? It refreshes a Redis key every 10 s (expires after 40 s).
+         */
+        get: operations["runner_status_api_v1_runner_status_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1023,6 +1063,35 @@ export interface components {
              */
             reason: string;
         };
+        /**
+         * LogEntryOut
+         * @description One line of a bot's activity feed, merged from signals, orders, trades, risk events and
+         *     the audit trail.
+         */
+        LogEntryOut: {
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "signal" | "order" | "trade" | "risk" | "audit";
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "info" | "warning" | "critical";
+            /** Title */
+            title: string;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+        };
         /** LoginIn */
         LoginIn: {
             /** Email */
@@ -1260,6 +1329,15 @@ export interface components {
             breakers: components["schemas"]["BreakerOut"][];
             /** Open Risk Cap Pct */
             open_risk_cap_pct: string;
+        };
+        /** RunnerStatus */
+        RunnerStatus: {
+            /** Alive */
+            alive: boolean;
+            /** Last Beat */
+            last_beat?: string | null;
+            /** Age S */
+            age_s?: number | null;
         };
         /** Sentiment */
         Sentiment: {
@@ -1735,7 +1813,8 @@ export interface operations {
     orders_api_v1_orders_get: {
         parameters: {
             query?: {
-                status?: "all" | "open" | "filled";
+                status?: "all" | "open" | "filled" | "history";
+                limit?: number;
             };
             header?: {
                 authorization?: string | null;
@@ -2319,6 +2398,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TradeOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bot_logs_api_v1_bots__bot_id__logs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                bot_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogEntryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    runner_status_api_v1_runner_status_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunnerStatus"];
                 };
             };
             /** @description Validation Error */

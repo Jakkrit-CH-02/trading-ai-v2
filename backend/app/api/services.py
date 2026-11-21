@@ -18,7 +18,7 @@ from app.auth.core import LoginLimiter, TotpVerifier
 from app.auth.crypto import EnvelopeCipher
 from app.core.config import Settings
 from app.exchange.trading import TradingAdapter
-from app.execution.store import InMemoryExecutionStore
+from app.execution.store import ExecutionStore, InMemoryExecutionStore
 from app.marketdata.store import CandleStore
 from app.notify.telegram import Notifier, NullNotifier
 from app.risk import CircuitBreakers, RiskProfile
@@ -154,8 +154,9 @@ class Services:
     adapter_factory: Callable[[str, str, bool], "AccountProbe"] | None = None
     job_lock: asyncio.Lock = field(default_factory=asyncio.Lock)  # one backtest at a time
     tasks: set[asyncio.Task[None]] = field(default_factory=set)
-    exec_store: InMemoryExecutionStore = field(default_factory=InMemoryExecutionStore)
-    engine_attached: bool = False  # no trading engine runs yet (Phase 5 has no bot runtime)
+    exec_store: ExecutionStore = field(default_factory=InMemoryExecutionStore)
+    redis: Any | None = None  # heartbeat of the bot runner
+    engine_attached: bool = False
     extras: dict[str, Any] = field(default_factory=dict)
 
     def get_cipher(self) -> EnvelopeCipher:

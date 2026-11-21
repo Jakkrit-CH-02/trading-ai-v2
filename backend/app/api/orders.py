@@ -15,9 +15,10 @@ from app.auth.deps import CurrentUser, Db, client_ip, current_user
 from app.core.models import BotStatus, Side
 from app.exchange.errors import ExchangeError, UnknownOrder
 from app.execution.order_manager import OrderManager
+from app.execution.portfolio import build_portfolio
 from app.execution.types import ExecStatus
 from app.risk import RiskEngine
-from app.risk.types import MarketState, PortfolioState, PositionView, RiskDecision, TradeIntent
+from app.risk.types import MarketState, PortfolioState, RiskDecision, TradeIntent
 
 router = APIRouter(prefix="/api/v1/orders", dependencies=[Depends(current_user)], tags=["orders"])
 Svc = Annotated[Services, Depends(get_services)]
@@ -96,23 +97,13 @@ async def evaluate(
     entry = body.entry if body.order_type == "LIMIT" and body.entry is not None else last
     br = svc.risk_breakers()
     br.record_tick(now)  # the quotes above were fetched a moment ago: data is fresh
-    usdt = balances.get("USDT")
-    cash = usdt.free if usdt else ZERO
-    equity = cash + (usdt.locked if usdt else ZERO)
-    held: list[PositionView] = []
-    for asset, b in balances.items():
-        if asset == "USDT" or b.total <= 0 or f"{asset}USDT" not in ticks:
-            continue
-        px = ticks[f"{asset}USDT"].last
-        equity += b.total * px
-        stop = None
-        pos = await svc.exec_store.get_position(f"{asset}USDT")
-        if pos is not None and pos.protected:
-            stop = pos.stop
-        if b.total * px >= 10:  # dust does not count; anything bigger without a stop is worst case
-            held.append(PositionView(f"{asset}USDT", b.total, px, px, stop))
-    day_start = svc.day_start.equity or equity
-    pf = PortfolioState(equity, cash, max(equity, day_start), day_start, day_start, tuple(held))
+    pf = await build_portfolio(
+        balances,
+        {sym: t.last for sym, t in ticks.items()},
+        svc.exec_store,
+        day_start=svc.day_start.equity,
+    )
+    cash, equity = pf.cash, pf.equity
     mk = MarketState(now=now, bot_status=BotStatus.RUNNING, data_age_s=0.0, clock_drift_ms=0.0)
     slippage: Decimal | None = None
     if body.order_type == "MARKET":

@@ -240,6 +240,14 @@ class Signal(Timestamps, Base):
     score: Mapped[Decimal | None] = mapped_column(_num())
     decision: Mapped[Decision] = mapped_column(_enum(Decision))
     reject_reason: Mapped[str | None] = mapped_column(Text)
+    bar_time: Mapped[datetime | None] = _ts()  # open_time of the closed bar that fired it
+    exit_plan: Mapped[dict[str, Any] | None] = mapped_column(JSONB)  # trail / time stop / ...
+    reasons: Mapped[dict[str, Any] | None] = mapped_column(JSONB)  # explainability (SPEC 1.5)
+
+    # one decision per bot, symbol, strategy and bar: replaying a candle can never double-fire
+    __table_args__ = (
+        UniqueConstraint("bot_id", "symbol", "strategy", "bar_time", name="uq_signal_bar"),
+    )
 
 
 class AiAnalysis(Timestamps, Base):
@@ -278,6 +286,8 @@ class Order(Timestamps, Base):
     id: Mapped[uuid.UUID] = _pk()
     bot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("bots.id"))  # NULL = manual
     signal_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("signals.id"))
+    # exchange account the order lives on; NULL = the API's own (.env) account (manual orders)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("exchange_accounts.id"))
     client_order_id: Mapped[str] = mapped_column(String(64), unique=True)
     exchange_order_id: Mapped[str | None] = mapped_column(String(64))
     symbol: Mapped[str] = mapped_column(String(20))
@@ -310,7 +320,8 @@ class Position(Timestamps, Base):
     __tablename__ = "positions"
 
     id: Mapped[uuid.UUID] = _pk()
-    bot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("bots.id"))
+    bot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("bots.id"))  # NULL = manual
+    account_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("exchange_accounts.id"))
     symbol: Mapped[str] = mapped_column(String(20))
     side: Mapped[Side] = mapped_column(_enum(Side))
     qty: Mapped[Decimal] = mapped_column(_num())
@@ -320,6 +331,9 @@ class Position(Timestamps, Base):
     status: Mapped[PositionStatus] = mapped_column(_enum(PositionStatus))
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = _ts()
+    # execution bookkeeping (stop/TP order ids, trail version...): the whole execution.Position
+    entry_cid: Mapped[str | None] = mapped_column(String(64), unique=True)
+    state: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
 class Trade(Timestamps, Base):

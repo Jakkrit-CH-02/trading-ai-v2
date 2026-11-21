@@ -1,4 +1,5 @@
 from app.execution.order_manager import ExecConfig, OrderManager
+from app.execution.pg_store import PgExecutionStore
 from app.execution.store import ExecutionStore, InMemoryExecutionStore
 from app.execution.types import (
     ExecStatus,
@@ -16,6 +17,7 @@ __all__ = [
     "InMemoryExecutionStore",
     "KillReport",
     "OrderManager",
+    "PgExecutionStore",
     "Position",
     "make_client_order_id",
 ]

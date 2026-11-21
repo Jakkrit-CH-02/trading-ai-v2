@@ -509,3 +509,122 @@ async def test_performance_trades_and_signals_read_models(env: Env) -> None:
     assert (await env.c.get("/api/v1/signals?decision=bogus")).status_code == 422
     assert (await env.c.get(f"/api/v1/bots/{uuid.uuid4()}/performance")).status_code == 404
     assert (await env.c.get(f"/api/v1/bots/{bot['id']}")).status_code == 200
+
+
+# ---- runtime-facing endpoints ----
+
+
+async def test_the_grid_strategy_cannot_be_started_yet(env: Env) -> None:
+    acc = await add_account(env)
+    bot = await make_bot(env, acc["id"], strategy="s4")
+    r = await env.c.post(f"/api/v1/bots/{bot['id']}/start")
+    assert r.status_code == 409 and "grid" in r.json()["detail"]
+
+
+async def test_bot_logs_merge_every_source_newest_first(env: Env) -> None:
+    from decimal import Decimal
+
+    from app.core.models import (
+        Decision,
+        Order,
+        OrderLeg,
+        Position,
+        PositionStatus,
+        RiskEvent,
+        Side,
+        Trade,
+    )
+    from app.core.models import Signal as SignalRow
+
+    acc = await add_account(env)
+    bot = await make_bot(env, acc["id"])
+    bid = uuid.UUID(bot["id"])
+    assert (await env.c.post(f"/api/v1/bots/{bot['id']}/start")).status_code == 200
+    assert env.svc.db
+    async with env.svc.db.begin() as s:
+        s.add(
+            SignalRow(
+                bot_id=bid,
+                symbol="BTCUSDT",
+                strategy="s1",
+                side=Side.BUY,
+                entry=Decimal(100),
+                stop=Decimal(95),
+                score=Decimal(72),
+                decision=Decision.REJECTED,
+                reject_reason="RR_TOO_LOW",
+            )
+        )
+        s.add(
+            RiskEvent(
+                bot_id=bid, type="DATA_GAP", severity="warning", payload={"symbol": "BTCUSDT"}
+            )
+        )
+        s.add(
+            Order(
+                bot_id=bid,
+                client_order_id="c1",
+                symbol="BTCUSDT",
+                side=Side.BUY,
+                type="LIMIT",
+                price=Decimal(100),
+                qty=Decimal(1),
+                status="FILLED",
+                leg=OrderLeg.ENTRY,
+            )
+        )
+        pos = Position(
+            bot_id=bid,
+            symbol="BTCUSDT",
+            side=Side.BUY,
+            qty=Decimal(1),
+            avg_entry=Decimal(100),
+            status=PositionStatus.CLOSED,
+            opened_at=datetime.now(UTC),
+        )
+        s.add(pos)
+        await s.flush()
+        s.add(
+            Trade(
+                position_id=pos.id,
+                pnl_usdt=Decimal(-5),
+                pnl_r=Decimal(-1),
+                fees=Decimal(1),
+                slippage=Decimal(0),
+                holding_minutes=60,
+                exit_reason="stop",
+            )
+        )
+    logs = (await env.c.get(f"/api/v1/bots/{bot['id']}/logs")).json()
+    assert {e["kind"] for e in logs} == {"signal", "risk", "order", "trade", "audit"}
+    assert [e["ts"] for e in logs] == sorted((e["ts"] for e in logs), reverse=True)
+    sig = next(e for e in logs if e["kind"] == "signal")
+    assert sig["level"] == "warning" and "RR_TOO_LOW" in sig["detail"]
+    assert next(e for e in logs if e["kind"] == "trade")["title"] == "Closed BTCUSDT: stop"
+    assert next(e for e in logs if e["kind"] == "audit")["title"] == "bot.start"
+    assert len((await env.c.get(f"/api/v1/bots/{bot['id']}/logs?limit=2")).json()) == 2
+    assert (await env.c.get(f"/api/v1/bots/{uuid.uuid4()}/logs")).status_code == 404
+
+
+class FakeRedis:
+    def __init__(self, value: str | None) -> None:
+        self.value = value
+
+    async def get(self, key: str) -> str | None:
+        assert key == "runner:heartbeat"
+        return self.value
+
+
+async def test_runner_status_reads_the_heartbeat(env: Env) -> None:
+    assert (await env.c.get("/api/v1/runner/status")).json() == {
+        "alive": False,
+        "last_beat": None,
+        "age_s": None,
+    }  # no redis configured
+    env.svc.redis = FakeRedis(None)
+    assert (await env.c.get("/api/v1/runner/status")).json()["alive"] is False
+    env.svc.redis = FakeRedis(datetime.now(UTC).isoformat())
+    j = (await env.c.get("/api/v1/runner/status")).json()
+    assert j["alive"] is True and j["age_s"] < 5
+    env.svc.redis = FakeRedis((datetime.now(UTC) - timedelta(minutes=5)).isoformat())
+    assert (await env.c.get("/api/v1/runner/status")).json()["alive"] is False  # stale beat

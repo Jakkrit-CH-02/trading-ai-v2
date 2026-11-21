@@ -28,8 +28,9 @@ from app.core.models import Decision
 from app.exchange.types import INTERVAL_MS
 from app.marketdata import indicators as ind
 from app.strategies.base import Strategy
+from app.strategies.decision import decide_at_close
 from app.strategies.features import Features, dec
-from app.strategies.scoring import ScoreResult, ScoreWeights, score_signal
+from app.strategies.scoring import ScoreResult, ScoreWeights
 from app.strategies.types import Signal
 
 QTY_STEP = Decimal("0.00000001")
@@ -313,19 +314,13 @@ def run_backtest(
 
         # 4. decide at the close of bar i (entry happens next bar)
         if pos is None and pending is None and i < n - 1:
-            sig2 = strategy.evaluate(feats, i)
-            if sig2 is not None:
-                sc2 = score_signal(sig2.s_tech, w=cfg.weights)
-                qv = feats["qv24h"][i] if "qv24h" in feats.cols else float("inf")
-                if cfg.min_quote_volume_24h > 0 and not qv >= cfg.min_quote_volume_24h:
-                    rec2 = SignalRecord(sig2, sc2, Decision.REJECTED, "liquidity filter")
-                elif i < cooldown_until:
-                    rec2 = SignalRecord(sig2, sc2, Decision.REJECTED, "cooldown after stop")
-                elif sc2.decision == Decision.SKIPPED:
-                    rec2 = SignalRecord(sig2, sc2, Decision.SKIPPED, sc2.reason)
-                else:
-                    rec2 = SignalRecord(sig2, sc2, Decision.TAKEN, sc2.reason)
-                    pending = (sig2, sc2, rec2)
+            bd = decide_at_close(
+                strategy, feats, i, cfg.weights, cfg.min_quote_volume_24h, i < cooldown_until
+            )
+            if bd is not None:
+                rec2 = SignalRecord(bd.signal, bd.score, bd.decision, bd.reason)
+                if bd.decision == Decision.TAKEN:
+                    pending = (bd.signal, bd.score, rec2)
                 records.append(rec2)
 
     idx = pd.DatetimeIndex([t for t, _ in equity_pts])

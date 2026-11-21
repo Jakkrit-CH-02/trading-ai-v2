@@ -71,6 +71,10 @@ class TradeIntent:
     bot_id: str | None = None
     is_manual: bool = False
     expected_slippage_bps: Decimal | None = None  # from order-book depth, for MARKET orders
+    # ``tp1`` always feeds the R:R check; these say whether/how it is also placed as an order.
+    # S3 (trailing only) has a reference target but no take-profit order; S2 sells everything.
+    place_tp: bool = True
+    tp1_close_fraction: Decimal | None = None  # None = the order manager's default (50%)
 
 
 @dataclass(frozen=True, slots=True)

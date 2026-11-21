@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
+from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -27,6 +28,7 @@ from app.core.db import make_engine, make_session_factory
 from app.core.logging import configure_logging
 from app.core.models import Bot, BotStatus
 from app.exchange.binance_testnet import ENVIRONMENTS, BinanceTestnetAdapter
+from app.execution.pg_store import PgExecutionStore
 from app.marketdata.store import PgCandleStore
 from app.notify.telegram import make_notifier
 
@@ -55,6 +57,8 @@ def build_services(settings: Settings) -> Services:
         trading=trading,
         db=factory,
         notifier=notifier,
+        exec_store=PgExecutionStore(factory),
+        redis=Redis.from_url(settings.redis_url, decode_responses=True),
     )
 
 
@@ -94,6 +98,8 @@ def create_app(services: Services | None = None) -> FastAPI:
         yield
         svc: Services = app.state.services
         await svc.market.aclose()
+        if svc.redis is not None:
+            await svc.redis.aclose()
         if svc.trading is not None:
             await svc.trading.aclose()
 

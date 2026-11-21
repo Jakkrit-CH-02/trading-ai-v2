@@ -18,7 +18,9 @@ from app.api.schemas_bots import (
     GateCheckOut,
     GatesOut,
     GoLiveIn,
+    LogEntryOut,
     PerformanceOut,
+    RunnerStatus,
     SignalOut,
     StrategyPreset,
     TradeOut,
@@ -28,6 +30,8 @@ from app.auth.audit import audit
 from app.auth.deps import CurrentUser, Db, TotpUser, client_ip, current_user
 from app.backtest.registry import default_params, make_strategy, strategy_names
 from app.bots.gates import GoLiveStatus, evaluate_go_live, snapshot_matches
+from app.bots.paper import PaperComparison
+from app.bots.paper import compare as compare_paper
 from app.core.models import (
     AuditLog,
     Backtest,
@@ -36,6 +40,7 @@ from app.core.models import (
     BotStatus,
     ExchangeAccount,
     Market,
+    Order,
     Position,
     RiskEvent,
     RiskProfile,
@@ -43,6 +48,7 @@ from app.core.models import (
     StrategyConfig,
     Trade,
 )
+from app.runtime.runner import UNSUPPORTED
 
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(current_user)], tags=["bots"])
 Svc = Annotated[Services, Depends(get_services)]
@@ -270,6 +276,9 @@ async def _transition(
             raise HTTPException(409, "kill switch is active")
         if bot.status not in (BotStatus.DRAFT, BotStatus.PAUSED):
             raise HTTPException(409, f"cannot start a bot in {bot.status}")
+        cfg = await active_config(db, bot.id)
+        if cfg is not None and cfg.strategy.lower() in UNSUPPORTED:
+            raise HTTPException(409, "the grid strategy is not run live yet: it cannot be started")
         account = await db.get(ExchangeAccount, bot.account_id)
         if account is None or account.permissions_checked_at is None:
             raise HTTPException(409, "verify the account's API key first")
@@ -318,6 +327,42 @@ async def stop_bot(
 # ---- go-live gate ----------------------------------------------------------------------------
 
 
+GATE_CACHE_S = 300  # the comparison runs backtests: reuse it for a few minutes
+
+
+async def paper_comparison(
+    svc: Services, db: AsyncSession, bot: Bot, cfg: StrategyConfig, started: datetime | None
+) -> PaperComparison | None:
+    if started is None:
+        return None
+    key = f"paper_cmp:{bot.id}:{cfg.id}"
+    now = datetime.now(UTC)
+    hit = svc.extras.get(key)
+    if hit is not None and (now - hit[0]).total_seconds() < GATE_CACHE_S:
+        cached: PaperComparison = hit[1]
+        return cached
+    paper_r = float(
+        (
+            await db.execute(
+                select(func.coalesce(func.sum(Trade.pnl_r), 0))
+                .join(Position, Position.id == Trade.position_id)
+                .where(Position.bot_id == bot.id, Position.opened_at >= started)
+            )
+        ).scalar_one()
+    )
+    result = await compare_paper(
+        svc.candles,
+        cfg.strategy.lower(),
+        dict(cfg.params or {}),
+        list(bot.symbols),
+        started,
+        now,
+        paper_r,
+    )
+    svc.extras[key] = (now, result)
+    return result
+
+
 async def compute_gates(svc: Services, db: AsyncSession, bot: Bot) -> GoLiveStatus:
     cfg = await active_config(db, bot.id)
     assert cfg is not None
@@ -354,12 +399,14 @@ async def compute_gates(svc: Services, db: AsyncSession, bot: Bot) -> GoLiveStat
         )
         return int((await db.execute(q)).scalar_one())
 
+    comparison = await paper_comparison(svc, db, bot, cfg, started)
     return evaluate_go_live(
         gate1_passed=gate1,
         gate1_failures=failures,
         paper_started_at=started,
         now=datetime.now(UTC),
-        paper_deviation=None,  # paper-vs-backtest comparison needs paper trades; not available yet
+        paper_deviation=comparison.deviation if comparison else None,
+        paper_detail=comparison.detail if comparison else None,
         unhandled_order_errors=await count_events("ORDER_ERROR"),
         recon_mismatches=await count_events("RECON_MISMATCH"),
         testnet_only=svc.settings.binance_testnet_only,
@@ -565,3 +612,129 @@ async def trades(
         )
         for t, p in (await db.execute(q)).all()
     ]
+
+
+# ---- activity log + runner status -------------------------------------------------------------
+
+LEVELS = {"info": "info", "warning": "warning", "critical": "critical"}
+
+
+@router.get("/bots/{bot_id}/logs", response_model=list[LogEntryOut])
+async def bot_logs(
+    bot_id: UUID, db: Db, limit: Annotated[int, Query(ge=1, le=500)] = 200
+) -> list[LogEntryOut]:
+    """Everything the bot did and why, newest first (SPEC 1.5: explainable)."""
+    await get_bot(db, bot_id)
+    out: list[LogEntryOut] = []
+    for s in (
+        await db.execute(
+            select(Signal)
+            .where(Signal.bot_id == bot_id)
+            .order_by(Signal.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars():
+        decision = str(s.decision)
+        out.append(
+            LogEntryOut(
+                ts=s.created_at,
+                kind="signal",
+                level="info"
+                if decision == "TAKEN"
+                else "warning"
+                if decision == "REJECTED"
+                else "info",
+                title=f"{decision} {s.strategy.upper()} {s.symbol}",
+                detail=(
+                    f"entry {s.entry:.2f} stop {s.stop:.2f} score {s.score:.0f}"
+                    + (f" - {s.reject_reason}" if s.reject_reason else "")
+                ),
+            )
+        )
+    for o in (
+        await db.execute(
+            select(Order)
+            .where(Order.bot_id == bot_id)
+            .order_by(Order.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars():
+        out.append(
+            LogEntryOut(
+                ts=o.created_at,
+                kind="order",
+                level="info",
+                title=f"{o.leg} {o.side!s} {o.type} {o.status}",
+                detail=f"{o.symbol} qty {o.qty:f}" + (f" @ {o.price:f}" if o.price else ""),
+            )
+        )
+    for t, p in (
+        await db.execute(
+            select(Trade, Position)
+            .join(Position, Position.id == Trade.position_id)
+            .where(Position.bot_id == bot_id)
+            .order_by(Trade.created_at.desc())
+            .limit(limit)
+        )
+    ).all():
+        out.append(
+            LogEntryOut(
+                ts=t.created_at,
+                kind="trade",
+                level="info" if t.pnl_usdt >= 0 else "warning",
+                title=f"Closed {p.symbol}: {t.exit_reason}",
+                detail=f"{t.pnl_usdt:+.2f} USDT ({t.pnl_r:+.2f}R), fees {t.fees:.2f}",
+            )
+        )
+    for e in (
+        await db.execute(
+            select(RiskEvent)
+            .where(RiskEvent.bot_id == bot_id)
+            .order_by(RiskEvent.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars():
+        out.append(
+            LogEntryOut(
+                ts=e.created_at,
+                kind="risk",
+                level=e.severity if e.severity in LEVELS else "warning",
+                title=e.type,
+                detail=", ".join(f"{k}={v}" for k, v in (e.payload or {}).items())[:300],
+            )
+        )
+    for a in (
+        await db.execute(
+            select(AuditLog)
+            .where(AuditLog.target == f"bot:{bot_id}")
+            .order_by(AuditLog.ts.desc())
+            .limit(limit)
+        )
+    ).scalars():
+        out.append(
+            LogEntryOut(
+                ts=a.ts,
+                kind="audit",
+                level="info",
+                title=a.action,
+                detail=", ".join(f"{k}={v}" for k, v in (a.after or {}).items()),
+            )
+        )
+    out.sort(key=lambda x: x.ts, reverse=True)
+    return out[:limit]
+
+
+@router.get("/runner/status", response_model=RunnerStatus)
+async def runner_status(svc: Svc) -> RunnerStatus:
+    """Is the bot runner alive? It refreshes a Redis key every 10 s (expires after 40 s)."""
+    if svc.redis is None:
+        return RunnerStatus(alive=False)
+    try:
+        raw = await svc.redis.get("runner:heartbeat")
+    except Exception:
+        return RunnerStatus(alive=False)
+    if not raw:
+        return RunnerStatus(alive=False)
+    beat = datetime.fromisoformat(raw)
+    age = (datetime.now(UTC) - beat).total_seconds()
+    return RunnerStatus(alive=age <= 30, last_beat=beat, age_s=round(age, 1))

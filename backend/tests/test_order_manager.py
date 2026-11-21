@@ -429,3 +429,63 @@ async def test_kill_switch_with_nothing_open_is_a_clean_no_op() -> None:
     report = await env.mgr.kill_all("test")
     assert (report.cancelled_orders, report.closed_positions, report.failures) == (0, 0, ())
     assert env.risk.breakers.kill_switch_active
+
+
+# ---- leaving a position on purpose (time stop, false breakout) -----------------------------
+
+
+async def test_close_position_sells_at_market_after_freeing_the_coins_and_records_the_reason() -> (
+    None
+):
+    env = make_env()
+    await env.submit()
+    assert await env.mgr.close_position("BTCUSDT", "time_stop") is True
+    assert await env.store.get_position("BTCUSDT") is None
+    assert env.open_order_types() == [] and env.ex.holding("BTC") == 0
+    trade = env.store.trades[-1]
+    assert trade["reason"] == "time_stop" and "POSITION_CLOSED" in env.store.event_types()
+
+
+async def test_close_position_does_not_sell_twice_when_the_stop_filled_first() -> None:
+    env = make_env()
+    await env.submit()
+    env.ex.set_price("BTCUSDT", D("97.9"))  # the exchange-side stop triggers and fills
+    assert await env.mgr.close_position("BTCUSDT", "time_stop") is True
+    assert [t["reason"] for t in env.store.trades] == ["stop"]  # booked as what really happened
+    sells = [
+        o for o in env.ex.orders.values() if o.type == OrderType.MARKET and o.side == Side.SELL
+    ]
+    assert sells == []
+
+
+async def test_a_failed_exit_puts_the_stop_back_instead_of_leaving_the_position_naked() -> None:
+    env = make_env()
+    await env.submit()
+    block_market_sells(env)
+    assert await env.mgr.close_position("BTCUSDT", "false_breakout") is False
+    pos = await env.store.get_position("BTCUSDT")
+    assert pos is not None and pos.protected
+    assert any(t.startswith("STOP_LOSS_LIMIT") for t in env.open_order_types())
+    assert "EXIT_FAILED" in env.store.event_types()
+
+
+async def test_close_position_on_nothing_is_a_no_op() -> None:
+    assert await make_env().mgr.close_position("BTCUSDT", "time_stop") is False
+
+
+async def test_a_trailing_only_signal_gets_a_stop_but_no_take_profit_order() -> None:
+    env = make_env()
+    r = await env.submit(place_tp=False)  # S3: tp1 only feeds the R:R check
+    assert r.status == ExecStatus.PROTECTED and r.position is not None
+    assert r.position.tp1 is None and r.position.tp_cid is None
+    assert env.open_order_types() == ["STOP_LOSS_LIMIT:SELL"]
+
+
+async def test_a_full_target_strategy_sells_everything_at_the_target() -> None:
+    env = make_env()
+    r = await env.submit(tp1_close_fraction=D(1))  # S2: TP1 is the whole exit
+    assert r.position is not None and r.position.tp1_close_fraction == D(1)
+    assert sorted(env.open_order_types()) == ["LIMIT_MAKER:SELL", "STOP_LOSS_LIMIT:SELL"]
+    env.ex.set_price("BTCUSDT", D(106))
+    assert await env.mgr.sync_position("BTCUSDT") == ["CLOSED_TP1"]
+    assert env.ex.holding("BTC") == 0

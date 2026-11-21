@@ -22,6 +22,7 @@ from app.core.db import make_session_factory
 from app.core.models import AuditLog, Side
 from app.exchange.fake import FakeTradingExchange
 from app.exchange.orders import OrderType
+from app.execution import PgExecutionStore
 from app.main import create_app
 from tests.conftest import needs_pg
 from tests.test_api import authed, make_services
@@ -112,6 +113,7 @@ async def pg(
         symbols=["BTCUSDT", "ETHUSDT"],
     )
     svc.db = make_session_factory(pg_engine)
+    svc.exec_store = PgExecutionStore(svc.db)  # the same wiring as production
     user, _ = await create_user(svc, "t@example.com", "pw-pw-pw-pw-pw")
     token = make_token("k" * 40, user.id, user.email, "access")
     transport = httpx.ASGITransport(app=create_app(svc))
@@ -185,3 +187,26 @@ def test_walk_asks_reports_slippage_and_treats_a_thin_book_as_unfillable() -> No
     assert walk_asks(book, D(150)) == pytest.approx(D("33.1"), abs=D("0.2"))  # 50 @100 + 100 @101
     assert walk_asks(book, D(500)) == D(10_000)  # more than the whole book
     assert walk_asks([], D(10)) == D(10_000)
+
+
+@needs_pg
+async def test_order_history_lists_every_leg_newest_first_and_survives_a_restart(
+    pg: tuple[httpx.AsyncClient, Services, FakeTradingExchange],
+) -> None:
+    c, svc, _ = pg
+    assert (await c.get("/api/v1/orders?status=history")).json() == []
+    body = {"symbol": "BTCUSDT", "order_type": "MARKET", "stop": "95", "tp1": "115"}
+    assert (await c.post("/api/v1/orders", json=body)).json()["status"] == "PROTECTED"
+    rows = (await c.get("/api/v1/orders?status=history")).json()
+    assert len(rows) == 4  # entry + OCO (stop, take-profit) + stop for the remainder
+    assert {r["source"] for r in rows} == {"manual"} and {r["symbol"] for r in rows} == {"BTCUSDT"}
+    assert [r["ts"] for r in rows] == sorted((r["ts"] for r in rows), reverse=True)
+    entry = next(r for r in rows if r["type"] == "MARKET")
+    assert entry["status"] == "FILLED" and D(entry["executed_qty"]) > 0
+    filled = (await c.get("/api/v1/orders?status=filled")).json()
+    assert [r["id"] for r in filled] == [entry["id"]]
+    assert len((await c.get("/api/v1/orders?status=history&limit=2")).json()) == 2
+    # a new process (new store object, same database) still sees the position and the history
+    assert svc.db is not None
+    again = await PgExecutionStore(svc.db).get_position("BTCUSDT")
+    assert again is not None and again.protected

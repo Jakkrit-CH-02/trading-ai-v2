@@ -43,6 +43,7 @@ def evaluate_go_live(
     unhandled_order_errors: int,
     recon_mismatches: int,
     testnet_only: bool,
+    paper_detail: str | None = None,
 ) -> GoLiveStatus:
     checks: list[GateCheck] = []
 
@@ -66,13 +67,20 @@ def evaluate_go_live(
             )
         )
     if paper_deviation is None:
-        checks.append(GateCheck("gate2_deviation", False, "no paper-vs-backtest comparison yet"))
+        checks.append(
+            GateCheck(
+                "gate2_deviation",
+                False,
+                paper_detail or "no paper-vs-backtest comparison yet",
+            )
+        )
     else:
         checks.append(
             GateCheck(
                 "gate2_deviation",
                 paper_deviation <= MAX_PAPER_DEVIATION,
-                f"{paper_deviation:.0%} vs max {MAX_PAPER_DEVIATION:.0%}",
+                f"{paper_deviation:.0%} vs max {MAX_PAPER_DEVIATION:.0%}"
+                + (f" ({paper_detail})" if paper_detail else ""),
             )
         )
     checks.append(
