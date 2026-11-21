@@ -8,6 +8,7 @@ write a market brief per coin once per 4h bar (or sooner on a severe headline / 
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 import structlog
@@ -15,10 +16,13 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 
 from app.ai import brief as brief_mod
+from app.ai.chat_llm import AnthropicChat
 from app.ai.classify import classify_pending
 from app.ai.llm import AnthropicLLM
 from app.ai.news import fetch_all, store_new
+from app.ai.review import review_pending, weekly_due, weekly_summary
 from app.ai.service import AiService
+from app.ai.transport import CHAT_REQ, serve_request
 from app.core.config import get_settings
 from app.core.db import make_engine, make_session_factory
 from app.core.logging import configure_logging
@@ -40,6 +44,33 @@ async def fear_greed(http: httpx.AsyncClient, url: str) -> int | None:
         return int(r.json()["data"][0]["value"])
     except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError):
         return None
+
+
+async def chat_loop(
+    redis: Redis, backend: AnthropicChat, ai: AiService, sessions: Any, model: str
+) -> None:
+    """Answer chat requests as they are queued; up to 3 at once."""
+    gate = asyncio.Semaphore(3)
+
+    async def one(payload: str) -> None:
+        async with gate:
+            try:
+                await serve_request(redis, backend, ai, sessions, model, payload)
+            except Exception:
+                log.exception("ai_worker.chat_failed")
+
+    tasks: set[asyncio.Task[None]] = set()
+    while True:
+        try:
+            item = await redis.blpop([CHAT_REQ], timeout=5)
+        except Exception:
+            log.exception("ai_worker.chat_queue_failed")
+            await asyncio.sleep(2)
+            continue
+        if item:
+            t = asyncio.create_task(one(str(item[1])))
+            tasks.add(t)
+            t.add_done_callback(tasks.discard)
 
 
 async def main() -> None:
@@ -64,6 +95,13 @@ async def main() -> None:
     )
     if ai is None:
         log.warning("ai.disabled", reason="ANTHROPIC_API_KEY is not set: headlines only")
+    background: list[asyncio.Task[None]] = []  # keep a reference: tasks can be garbage-collected
+    if ai is not None:
+        background.append(
+            asyncio.create_task(
+                chat_loop(redis, AnthropicChat(key), ai, sessions, s.ai_brief_model)
+            )
+        )
     last_news = datetime.min.replace(tzinfo=UTC)
     last_severe: dict[str, datetime] = {}
     log.info("ai_worker.started", enabled=ai is not None)
@@ -111,6 +149,9 @@ async def main() -> None:
                         await brief_mod.generate_brief(
                             ai, sessions, candles, sym, s.ai_brief_model, now, fng
                         )
+                await review_pending(ai, sessions, s.ai_brief_model)
+                if (week := await weekly_due(sessions, now)) is not None:
+                    await weekly_summary(ai, sessions, s.ai_brief_model, week)
         except Exception:  # the worker never dies: the bots do not depend on it
             log.exception("ai_worker.cycle_failed")
         await asyncio.sleep(30)

@@ -146,3 +146,127 @@ async def test_the_ai_endpoints_need_a_login(env: Env) -> None:  # noqa: F811
         assert (
             await anon.post("/api/v1/ai/briefs/refresh", json={"symbol": "BTCUSDT"})
         ).status_code == 401
+
+
+# ---- chat (SSE relay) and the journal ----
+
+
+class ChatRedis:
+    """Heartbeat + counters + a 'worker' that answers every queued request with fixed events."""
+
+    def __init__(self, enabled: bool = True, age_s: float = 0) -> None:
+        at = (datetime.now(UTC) - timedelta(seconds=age_s)).isoformat()
+        self.beat = json.dumps({"at": at, "enabled": enabled})
+        self.counts: dict[str, int] = {}
+        self.queued: list[dict[str, Any]] = []
+        self.streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
+
+    async def get(self, key: str) -> str | None:
+        return self.beat if key == "ai:heartbeat" else None
+
+    async def incr(self, key: str) -> int:
+        self.counts[key] = self.counts.get(key, 0) + 1
+        return self.counts[key]
+
+    async def expire(self, key: str, s: int) -> None:
+        return None
+
+    async def rpush(self, key: str, value: str) -> None:
+        assert key == "ai:chat:req"
+        req = json.loads(value)
+        self.queued.append(req)
+        evs = [
+            {"type": "delta", "text": "สวัสดี"},
+            {"type": "proposal", "action": "pause_bot"},
+            {"type": "done"},
+        ]
+        self.streams[f"ai:chat:resp:{req['id']}"] = [
+            (f"{i + 1}-0", {"e": json.dumps(e, ensure_ascii=False)}) for i, e in enumerate(evs)
+        ]
+
+    async def xread(self, streams: dict[str, str], block: int, count: int) -> Any:
+        ((key, last),) = streams.items()
+        items = [e for e in self.streams.get(key, []) if last == "0" or e[0] > last]
+        return [[key, items]] if items else []
+
+
+U = {"role": "user", "content": "สถานะบอท?"}
+
+
+async def test_chat_relays_the_workers_events_as_sse_and_queues_the_clean_request(env: Env) -> None:  # noqa: F811
+    r = ChatRedis()
+    env.svc.redis = r
+    resp = await env.c.post("/api/v1/ai/chat", json={"messages": [U]})
+    assert resp.status_code == 200 and resp.headers["content-type"].startswith("text/event-stream")
+    events = [json.loads(line[6:]) for line in resp.text.split("\n\n") if line.startswith("data: ")]
+    assert [e["type"] for e in events] == ["delta", "proposal", "done"] and events[0][
+        "text"
+    ] == "สวัสดี"
+    assert r.queued[0]["messages"] == [U] and len(r.queued[0]["id"]) == 32
+
+
+async def test_chat_is_refused_cleanly_when_the_ai_cannot_answer(env: Env) -> None:  # noqa: F811
+    body = {"messages": [U]}
+    assert (await env.c.post("/api/v1/ai/chat", json=body)).status_code == 503  # no redis
+    env.svc.redis = ChatRedis(enabled=False)
+    assert (await env.c.post("/api/v1/ai/chat", json=body)).status_code == 503  # no API key
+    env.svc.redis = ChatRedis(age_s=600)
+    assert (await env.c.post("/api/v1/ai/chat", json=body)).status_code == 503  # worker is gone
+    env.svc.redis = ChatRedis()
+    for bad in (
+        [],
+        [{"role": "assistant", "content": "x"}],
+        [{"role": "user", "content": "x" * 5000}],
+    ):
+        assert (await env.c.post("/api/v1/ai/chat", json={"messages": bad})).status_code == 422
+    assert (
+        await env.c.post("/api/v1/ai/chat", json={"messages": [{"role": "system", "content": "x"}]})
+    ).status_code == 422
+
+
+async def test_chat_is_limited_to_30_questions_an_hour_per_user(env: Env) -> None:  # noqa: F811
+    r = ChatRedis()
+    env.svc.redis = r
+    codes = [
+        (await env.c.post("/api/v1/ai/chat", json={"messages": [U]})).status_code for _ in range(31)
+    ]
+    assert codes[:30] == [200] * 30 and codes[30] == 429
+    assert len(r.queued) == 30  # the 31st never reached the paid model
+
+
+async def test_the_journal_lists_trade_reviews_and_weekly_summaries(env: Env) -> None:  # noqa: F811
+    assert env.svc.db
+    base = {"model": "claude-sonnet-5-5", "prompt_hash": "h", "kind": AnalysisKind.REVIEW}
+    async with env.svc.db.begin() as db:
+        db.add_all([
+            AiAnalysis(**base, symbol="BTCUSDT", input={"trade_id": "t1", "pnl_r": 1.5},
+                       output={"verdict": "win_clean", "why_th": "ดี", "lessons_th": ["a"]},
+                       cost_usd=Decimal("0.01")),
+            AiAnalysis(**base, input={"week": "2026-11-09", "total_r": 2.0},
+                       output={"summary_th": "สรุป", "patterns_th": ["p"], "suggestions_th": ["s"]},
+                       cost_usd=Decimal("0.02")),
+            AiAnalysis(**base, input={"trade_id": "t2"}, output={"error": "timeout"}),  # failed
+            AiAnalysis(**base, input={"trade_id": "t3"}, output={"verdict": "x"},
+                       cost_usd=Decimal("0.01")),
+        ])  # fmt: skip
+    j = (await env.c.get("/api/v1/ai/reviews")).json()
+    assert {r["kind"] for r in j} == {"trade", "week"} and len(j) == 2
+    trade = next(r for r in j if r["kind"] == "trade")
+    assert (trade["verdict"], trade["text"], trade["points"], trade["pnl_r"]) == (
+        "win_clean",
+        "ดี",
+        ["a"],
+        1.5,
+    )
+    week = next(r for r in j if r["kind"] == "week")
+    assert week["points"] == ["p", "s"] and week["pnl_r"] == 2.0
+
+
+async def test_chat_and_journal_need_a_login(env: Env) -> None:  # noqa: F811
+    import httpx
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(env.svc)), base_url="http://test"
+    ) as anon:
+        assert (await anon.get("/api/v1/ai/reviews")).status_code == 401
+        assert (await anon.post("/api/v1/ai/chat", json={"messages": [U]})).status_code == 401

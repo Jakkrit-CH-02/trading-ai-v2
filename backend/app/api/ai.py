@@ -5,17 +5,21 @@ Redis list) to run early; the worker owns the key, the budget and the prompts.
 """
 
 import json
+import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from app.ai.service import month_start
+from app.ai.transport import CHAT_REQ, RATE_PER_HOUR, clean_messages, read_events
 from app.api.services import Services, get_services
-from app.auth.deps import Db, current_user
+from app.auth.deps import CurrentUser, Db, current_user
 from app.core.models import AiAnalysis, AnalysisKind, NewsItem
 
 router = APIRouter(prefix="/api/v1/ai", dependencies=[Depends(current_user)], tags=["ai"])
@@ -155,3 +159,99 @@ async def refresh(body: RefreshIn, svc: Svc) -> dict[str, str]:
         raise HTTPException(429, "this coin was refreshed a moment ago; try again in a few minutes")
     await svc.redis.rpush(REFRESH_LIST, body.symbol)
     return {"status": "queued"}
+
+
+class ReviewOut(BaseModel):
+    id: str
+    kind: Literal["trade", "week"]
+    created_at: datetime
+    symbol: str | None
+    verdict: str | None
+    text: str
+    points: list[str]
+    pnl_r: float | None
+
+
+@router.get("/reviews", response_model=list[ReviewOut])
+async def reviews(db: Db, limit: int = Query(30, ge=1, le=100)) -> list[ReviewOut]:
+    """The trade journal: per-trade reviews and weekly summaries, newest first."""
+    q = (
+        select(AiAnalysis)
+        .where(AiAnalysis.kind == AnalysisKind.REVIEW, AiAnalysis.cost_usd > 0)
+        .order_by(AiAnalysis.created_at.desc())
+        .limit(limit)
+    )
+    out: list[ReviewOut] = []
+    for a in (await db.execute(q)).scalars():
+        o: dict[str, Any] = a.output
+        i: dict[str, Any] = a.input
+        try:
+            if "trade_id" in i:
+                out.append(
+                    ReviewOut(
+                        id=str(a.id), kind="trade", created_at=a.created_at, symbol=a.symbol,
+                        verdict=o["verdict"], text=o["why_th"], points=list(o["lessons_th"]),
+                        pnl_r=i.get("pnl_r"),
+                    )
+                )  # fmt: skip
+            else:
+                out.append(
+                    ReviewOut(
+                        id=str(a.id), kind="week", created_at=a.created_at, symbol=None,
+                        verdict=None, text=o["summary_th"],
+                        points=[*o["patterns_th"], *o["suggestions_th"]], pnl_r=i.get("total_r"),
+                    )
+                )  # fmt: skip
+        except (KeyError, TypeError):
+            continue  # a malformed row is hidden, not a 500
+    return out
+
+
+class ChatMsg(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ChatIn(BaseModel):
+    messages: list[ChatMsg]
+
+
+@router.post("/chat")
+async def chat(body: ChatIn, user: CurrentUser, svc: Svc) -> StreamingResponse:
+    """Ask the AI about the portfolio and bots. Streams Server-Sent Events (delta, tool,
+    proposal, done/error). The API only relays: the worker holds the key and the read-only tools."""
+    history = clean_messages([m.model_dump() for m in body.messages])
+    if history is None:
+        raise HTTPException(
+            422, "messages must alternate from a user message, be short, and end with the user"
+        )
+    redis = svc.redis
+    if redis is None:
+        raise HTTPException(503, "the AI worker is not reachable")
+    try:
+        raw = await redis.get(HEARTBEAT_KEY)
+        beat = json.loads(raw) if raw else {}
+        ready = (
+            bool(beat.get("enabled"))
+            and (datetime.now(UTC) - datetime.fromisoformat(beat["at"])).total_seconds() <= 90
+        )
+    except Exception:
+        ready = False
+    if not ready:
+        raise HTTPException(503, "the AI worker is not running or has no ANTHROPIC_API_KEY")
+    rate_key = f"ai:chat:rate:{user.user_id}"
+    n = await redis.incr(rate_key)
+    if n == 1:
+        await redis.expire(rate_key, 3600)
+    if n > RATE_PER_HOUR:
+        raise HTTPException(429, f"chat limit reached ({RATE_PER_HOUR} questions per hour)")
+    rid = uuid.uuid4().hex
+    await redis.rpush(CHAT_REQ, json.dumps({"id": rid, "messages": history}))
+
+    async def stream() -> AsyncIterator[str]:
+        async for ev in read_events(redis, rid):
+            yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
+    )

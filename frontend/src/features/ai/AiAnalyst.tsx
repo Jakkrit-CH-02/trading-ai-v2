@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { ApiError } from '../../lib/api'
 import { Card, CardState, DataTable, InsetPanel, PrimaryButton, Segmented, Skeleton, useToasts } from '../../ui'
-import { BIAS_LABEL, useAiNews, useAiStatus, useBriefs, useRefreshBrief, type Brief } from './queries'
+import ChatPanel from './ChatPanel'
+import { BIAS_LABEL, useAiNews, useAiStatus, useBriefs, useRefreshBrief, useReviews, type Brief } from './queries'
 
 const SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT']
 const base = (s: string) => s.replace('USDT', '')
@@ -45,6 +46,33 @@ function BriefCard({ b }: { b: Brief }) {
   )
 }
 
+const VERDICT: Record<string, string> = { win_clean: 'ชนะอย่างมีเหตุผล', win_lucky: 'ชนะแบบโชคช่วย', loss_valid: 'แพ้ตามความเสี่ยง', loss_error: 'แพ้เพราะพลาด', scratch: 'เสมอตัว' }
+
+function Journal() {
+  const q = useReviews()
+  return (
+    <Card title="Trade journal" subtitle="AI รีวิวทุกเทรดที่ปิด และสรุปรายสัปดาห์ · เป็นข้อสังเกต ไม่เปลี่ยนค่าบอท">
+      <CardState status={q.isPending ? 'loading' : q.isError ? 'error' : q.data?.length ? 'ready' : 'empty'} empty="ยังไม่มีเทรดที่ปิดให้รีวิว" onRetry={() => q.refetch()}>
+        <div className="flex flex-col gap-3">
+          {q.data?.map((r) => (
+            <InsetPanel key={r.id} className="flex flex-col gap-1 text-[13px]">
+              <div className="flex items-baseline justify-between gap-3">
+                <strong>{r.kind === 'week' ? 'สรุปรายสัปดาห์' : `${r.symbol ?? ''} · ${VERDICT[r.verdict ?? ''] ?? r.verdict}`}</strong>
+                <span className="text-secondary text-[11px]">
+                  {r.pnl_r != null ? `${r.pnl_r >= 0 ? '+' : ''}${r.pnl_r.toFixed(2)}R · ` : ''}
+                  {when(r.created_at)}
+                </span>
+              </div>
+              <div>{r.text}</div>
+              {r.points.length > 0 && <ul className="text-secondary list-disc pl-5 text-[12px]">{r.points.map((p, i) => <li key={i}>{p}</li>)}</ul>}
+            </InsetPanel>
+          ))}
+        </div>
+      </CardState>
+    </Card>
+  )
+}
+
 export default function AiAnalyst() {
   const [symbol, setSymbol] = useState<string>('BTCUSDT')
   const briefs = useBriefs()
@@ -75,6 +103,8 @@ export default function AiAnalyst() {
       <CardState status={briefs.isPending ? 'loading' : briefs.isError ? 'error' : current ? 'ready' : 'empty'} empty={`ยังไม่มี brief ของ ${base(symbol)}`} onRetry={() => briefs.refetch()} skeleton={<Skeleton className="h-40" />}>
         {current && <BriefCard b={current} />}
       </CardState>
+      <ChatPanel />
+      <Journal />
       <Card title="Headlines" subtitle="ข่าวคริปโตล่าสุด · จัดหมวดโดย AI (ข่าวเป็นข้อมูล ไม่ใช่คำสั่ง)">
         <CardState status={news.isPending ? 'loading' : news.isError ? 'error' : news.data?.length ? 'ready' : 'empty'} empty="ยังไม่มีข่าว" onRetry={() => news.refetch()}>
           <DataTable

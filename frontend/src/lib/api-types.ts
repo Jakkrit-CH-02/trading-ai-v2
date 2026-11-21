@@ -789,6 +789,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reviews
+         * @description The trade journal: per-trade reviews and weekly summaries, newest first.
+         */
+        get: operations["reviews_api_v1_ai_reviews_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat
+         * @description Ask the AI about the portfolio and bots. Streams Server-Sent Events (delta, tool,
+         *     proposal, done/error). The API only relays: the worker holds the key and the read-only tools.
+         */
+        post: operations["chat_api_v1_ai_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1063,6 +1104,21 @@ export interface components {
             close: number;
             /** Volume */
             volume: number;
+        };
+        /** ChatIn */
+        ChatIn: {
+            /** Messages */
+            messages: components["schemas"]["ChatMsg"][];
+        };
+        /** ChatMsg */
+        ChatMsg: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Content */
+            content: string;
         };
         /** CheckOut */
         CheckOut: {
@@ -1393,6 +1449,31 @@ export interface components {
         RefreshIn: {
             /** Symbol */
             symbol: string;
+        };
+        /** ReviewOut */
+        ReviewOut: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "trade" | "week";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Symbol */
+            symbol: string | null;
+            /** Verdict */
+            verdict: string | null;
+            /** Text */
+            text: string;
+            /** Points */
+            points: string[];
+            /** Pnl R */
+            pnl_r: number | null;
         };
         /** RiskEventOut */
         RiskEventOut: {
@@ -3263,6 +3344,74 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reviews_api_v1_ai_reviews_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_api_v1_ai_chat_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TotpHost } from '../lib/totp'
 import { Toaster } from '../ui'
+import { parseSse } from './ai/chat'
 import AiAnalyst from './ai/AiAnalyst'
 import BotDetail from './bots/BotDetail'
 import Bots from './bots/Bots'
@@ -18,7 +19,7 @@ vi.mock('../ui/PriceChart', async (orig) => ({
   PriceChart: () => <div data-testid="price-chart" />,
 }))
 
-type Handler = (init?: RequestInit, url?: string) => unknown | { __status: number; body: unknown }
+type Handler = (init?: RequestInit, url?: string) => unknown | { __status: number; body: unknown } | { __sse: string }
 const calls: { path: string; init?: RequestInit }[] = []
 
 function mockApi(routes: Record<string, Handler>) {
@@ -30,7 +31,8 @@ function mockApi(routes: Record<string, Handler>) {
       calls.push({ path, init })
       const h = routes[`${init?.method ?? 'GET'} ${path}`]
       if (!h) return new Response('{"detail":"not found"}', { status: 404 })
-      const r = h(init, url) as { __status?: number; body?: unknown }
+      const r = h(init, url) as { __status?: number; body?: unknown; __sse?: string }
+      if (r && r.__sse !== undefined) return new Response(r.__sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
       return r && r.__status ? new Response(JSON.stringify(r.body), { status: r.__status }) : new Response(JSON.stringify(r), { status: 200 })
     }),
   )
@@ -262,7 +264,7 @@ describe('AI Analyst', () => {
   const news = [{ id: 'n1', source: 'CoinDesk', title: 'ETF approved', url: 'https://x.test/a', published_at: '2026-11-21T05:00:00Z', symbols: ['BTC'], sentiment: 0.6, severity: 0.4, category: 'regulation' }]
 
   it('shows the brief, the spend and the headlines', async () => {
-    mockApi({ 'GET /ai/briefs': () => [brief], 'GET /ai/news': () => news, 'GET /ai/status': () => status })
+    mockApi({ 'GET /ai/briefs': () => [brief], 'GET /ai/news': () => news, 'GET /ai/status': () => status, 'GET /ai/reviews': () => [] })
     renderAt('/ai')
     expect(await screen.findByText('บรรทัดแรก')).toBeInTheDocument()
     expect(screen.getByText(/Bullish · S_ai 72/)).toBeInTheDocument()
@@ -299,5 +301,70 @@ describe('AI Analyst', () => {
     await waitFor(() => expect(calls.find((c) => c.path === '/ai/briefs/refresh')?.init?.body).toBe(JSON.stringify({ symbol: 'BTCUSDT' })))
     await userEvent.click(screen.getByRole('button', { name: 'Refresh brief' }))
     expect(await screen.findByText('refreshed a moment ago')).toBeInTheDocument()
+  })
+
+  const sse = (...evs: object[]) => ({ __sse: evs.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') })
+  const aiBase = { 'GET /ai/briefs': () => [brief], 'GET /ai/news': () => news, 'GET /ai/status': () => status, 'GET /ai/reviews': () => [] }
+
+  it('parses SSE frames, keeps a partial frame for later and skips a broken one', () => {
+    const a = parseSse('data: {"type":"delta","text":"a"}\n\ndata: {"type":"do')
+    expect(a.events).toEqual([{ type: 'delta', text: 'a' }])
+    expect(a.rest).toBe('data: {"type":"do')
+    const b = parseSse(`${a.rest}ne"}\n\ndata: not json\n\n`)
+    expect(b.events).toEqual([{ type: 'done' }])
+  })
+
+  it('streams an answer, shows the tool used, and a pause proposal needs a click', async () => {
+    mockApi({
+      ...aiBase,
+      'POST /ai/chat': () => sse({ type: 'tool', name: 'get_bot_stats' }, { type: 'delta', text: 'บอท ' }, { type: 'delta', text: 'ปกติดี' }, { type: 'proposal', action: 'pause_bot', bot_id: 'b1', bot_name: 'alpha', reason: 'DD สูง' }, { type: 'done' }),
+      'POST /bots/b1/pause': () => ({ ...bot, status: 'PAUSED' }),
+    })
+    renderAt('/ai', <Toaster />)
+    await screen.findByText('บรรทัดแรก')
+    await userEvent.type(screen.getByLabelText('Ask the AI'), 'บอทเป็นไง')
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(await screen.findByText(/บอท ปกติดี/)).toBeInTheDocument()
+    expect(screen.getByText('ดูสถิติบอท')).toBeInTheDocument()
+    expect(JSON.parse(String(calls.find((c) => c.path === '/ai/chat')?.init?.body))).toEqual({ messages: [{ role: 'user', content: 'บอทเป็นไง' }] })
+    const box = await screen.findByRole('group', { name: 'AI proposal' })
+    expect(within(box).getByText(/AI เสนอให้หยุดบอท alpha/)).toBeInTheDocument()
+    expect(calls.some((c) => c.path === '/bots/b1/pause')).toBe(false) // nothing happens by itself
+    await userEvent.click(within(box).getByRole('button', { name: 'ยืนยัน Pause' }))
+    await waitFor(() => expect(calls.some((c) => c.path === '/bots/b1/pause' && c.init?.method === 'POST')).toBe(true))
+    expect(await screen.findByText(/หยุดแล้ว/)).toBeInTheDocument()
+  })
+
+  it('dismissing a proposal changes nothing', async () => {
+    mockApi({ ...aiBase, 'POST /ai/chat': () => sse({ type: 'proposal', action: 'pause_bot', bot_id: 'b1', bot_name: 'alpha', reason: 'x' }, { type: 'done' }) })
+    renderAt('/ai')
+    await screen.findByText('บรรทัดแรก')
+    await userEvent.type(screen.getByLabelText('Ask the AI'), 'q')
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'ไม่ต้อง' }))
+    expect(screen.queryByRole('group', { name: 'AI proposal' })).not.toBeInTheDocument()
+    expect(calls.some((c) => c.path === '/bots/b1/pause')).toBe(false)
+  })
+
+  it('explains an unavailable AI instead of failing silently', async () => {
+    mockApi({ ...aiBase, 'POST /ai/chat': () => ({ __status: 503, body: { detail: 'worker down' } }) })
+    renderAt('/ai')
+    await screen.findByText('บรรทัดแรก')
+    await userEvent.type(screen.getByLabelText('Ask the AI'), 'q')
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(await screen.findByText(/AI ยังไม่พร้อม/)).toBeInTheDocument()
+  })
+
+  it('lists the trade journal', async () => {
+    const reviews = [
+      { id: 'r1', kind: 'trade', created_at: '2026-11-21T06:00:00Z', symbol: 'BTCUSDT', verdict: 'win_clean', text: 'เข้าตามแผน', points: ['รอจังหวะ'], pnl_r: 1.5 },
+      { id: 'r2', kind: 'week', created_at: '2026-11-17T00:00:00Z', symbol: null, verdict: null, text: 'สัปดาห์นี้เล็ก', points: ['ตัวอย่างน้อย'], pnl_r: -0.5 },
+    ]
+    mockApi({ ...aiBase, 'GET /ai/reviews': () => reviews })
+    renderAt('/ai')
+    expect(await screen.findByText(/BTCUSDT · ชนะอย่างมีเหตุผล/)).toBeInTheDocument()
+    expect(screen.getByText('+1.50R', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('สรุปรายสัปดาห์')).toBeInTheDocument()
+    expect(screen.getByText('ตัวอย่างน้อย')).toBeInTheDocument()
   })
 })

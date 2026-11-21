@@ -56,7 +56,7 @@ class AiService:
             )
             return Decimal((await db.execute(q)).scalar_one())
 
-    async def _budget_ok(self) -> bool:
+    async def budget_ok(self) -> bool:
         spent = await self.month_spend()
         month = month_start(self.now())
         if spent >= self.budget * Decimal("0.8") and self._warned_month != month:
@@ -77,7 +77,7 @@ class AiService:
         max_tokens: int = 1500,
         effort: str = "low",
     ) -> T | None:
-        if not await self._budget_ok():
+        if not await self.budget_ok():
             log.warning("ai.budget_exhausted", kind=kind.value)
             return None
         prompt_hash = hashlib.sha256((system + "\n" + user).encode()).hexdigest()
@@ -93,12 +93,12 @@ class AiService:
             )
         except (LLMError, ValidationError) as e:
             log.warning("ai.call_failed", kind=kind.value, error=str(e)[:120])
-            await self._record(
+            await self.record(
                 kind, symbol, model, prompt_hash, input_payload, {"error": str(e)[:200]}
             )
             return None
         out = json.loads(res.parsed.model_dump_json())
-        await self._record(
+        await self.record(
             kind,
             symbol,
             model,
@@ -112,7 +112,7 @@ class AiService:
         )
         return res.parsed
 
-    async def _record(
+    async def record(
         self,
         kind: AnalysisKind,
         symbol: str | None,
