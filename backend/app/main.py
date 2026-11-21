@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
+from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -57,6 +58,7 @@ def build_services(settings: Settings) -> Services:
         db=factory,
         notifier=notifier,
         exec_store=PgExecutionStore(factory),
+        redis=Redis.from_url(settings.redis_url, decode_responses=True),
     )
 
 
@@ -96,6 +98,8 @@ def create_app(services: Services | None = None) -> FastAPI:
         yield
         svc: Services = app.state.services
         await svc.market.aclose()
+        if svc.redis is not None:
+            await svc.redis.aclose()
         if svc.trading is not None:
             await svc.trading.aclose()
 

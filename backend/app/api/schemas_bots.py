@@ -147,3 +147,20 @@ class AccountOut(BaseModel):
     is_testnet: bool
     api_key_last4: str
     permissions_checked_at: datetime | None
+
+
+class LogEntryOut(BaseModel):
+    """One line of a bot's activity feed, merged from signals, orders, trades, risk events and
+    the audit trail."""
+
+    ts: datetime
+    kind: Literal["signal", "order", "trade", "risk", "audit"]
+    level: Literal["info", "warning", "critical"]
+    title: str
+    detail: str = ""
+
+
+class RunnerStatus(BaseModel):
+    alive: bool
+    last_beat: datetime | None = None
+    age_s: float | None = None

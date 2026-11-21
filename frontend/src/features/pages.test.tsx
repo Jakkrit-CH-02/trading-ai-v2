@@ -79,6 +79,8 @@ describe('Bot detail', () => {
     'GET /bots/b1/performance': () => emptyPerf,
     'GET /signals': () => [],
     'GET /trades': () => [],
+    'GET /bots/b1/logs': () => [],
+    'GET /runner/status': () => ({ alive: true, last_beat: '2026-11-21T00:00:00Z', age_s: 3 }),
   }
   it('keeps Go live disabled and lists every failing gate', async () => {
     mockApi({
@@ -89,6 +91,32 @@ describe('Bot detail', () => {
     expect(await screen.findByText('no walk-forward backtest')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Go live' })).toBeDisabled()
     expect(screen.getAllByLabelText('not passed')).toHaveLength(2)
+  })
+  it('shows the activity log, filterable by kind', async () => {
+    const logs = [
+      { ts: '2026-11-21T02:00:00Z', kind: 'trade', level: 'warning', title: 'Closed BTCUSDT: stop', detail: '-5.00 USDT (-1.00R)' },
+      { ts: '2026-11-21T01:00:00Z', kind: 'risk', level: 'critical', title: 'UNPROTECTED_POSITION', detail: 'symbol=BTCUSDT' },
+      { ts: '2026-11-21T00:00:00Z', kind: 'audit', level: 'info', title: 'bot.start', detail: 'status=PAPER' },
+    ]
+    mockApi({ ...base, 'GET /bots/b1/logs': () => logs, 'GET /bots/b1/gates': () => ({ allowed: false, checks: [] }) })
+    renderAt('/bots/b1')
+    expect(await screen.findByText('Closed BTCUSDT: stop')).toBeInTheDocument()
+    expect(screen.getByText('UNPROTECTED_POSITION')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: 'Risk' }))
+    expect(screen.queryByText('Closed BTCUSDT: stop')).not.toBeInTheDocument()
+    expect(screen.getByText('UNPROTECTED_POSITION')).toBeInTheDocument()
+  })
+  it('stays quiet about the runner while it is alive', async () => {
+    mockApi({ ...base, 'GET /bots/b1/gates': () => ({ allowed: false, checks: [] }) })
+    renderAt('/bots/b1')
+    await screen.findByText('ยังไม่มีสัญญาณ')
+    await waitFor(() => expect(calls.some((c) => c.path === '/runner/status')).toBe(true))
+    expect(screen.queryByText(/ไม่ตอบสนอง/)).not.toBeInTheDocument()
+  })
+  it('warns when an active bot has no live runner', async () => {
+    mockApi({ ...base, 'GET /runner/status': () => ({ alive: false, last_beat: null, age_s: null }), 'GET /bots/b1/gates': () => ({ allowed: false, checks: [] }) })
+    renderAt('/bots/b1')
+    expect(await screen.findByText(/ไม่ตอบสนอง/)).toBeInTheDocument()
   })
   it('shows empty states for signals, trades and the equity curve', async () => {
     mockApi({ ...base, 'GET /bots/b1/gates': () => ({ allowed: false, checks: [] }) })

@@ -6,7 +6,7 @@ import { askTotp } from '../../lib/totp'
 import {
   BotStatusPill, Card, CardState, DataTable, Drawer, InsetPanel, LineChart, PrimaryButton, Segmented, Signed, Skeleton, StatTile, TextInput, fmtPrice, useToasts,
 } from '../../ui'
-import { STATUS_PILL, useBot, useBotTrades, useGates, usePerformance, useSignals, type Signal } from './queries'
+import { STATUS_PILL, useBot, useBotLogs, useBotTrades, useGates, usePerformance, useRunner, useSignals, type Signal } from './queries'
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : 'เกิดข้อผิดพลาด')
@@ -134,6 +134,42 @@ function SignalDrawer({ s, onClose }: { s: Signal | null; onClose: () => void })
   )
 }
 
+const KINDS = ['All', 'Signal', 'Order', 'Trade', 'Risk', 'Audit'] as const
+const LEVEL_CLASS = { info: 'text-secondary', warning: 'text-primary font-semibold', critical: 'text-down' } as const
+
+function LogsCard({ id }: { id: string }) {
+  const q = useBotLogs(id)
+  const [kind, setKind] = useState<(typeof KINDS)[number]>('All')
+  const rows = (q.data ?? []).filter((e) => kind === 'All' || e.kind === kind.toLowerCase())
+  return (
+    <Card title="Logs" subtitle="ทุกอย่างที่บอททำและเหตุผล · ใหม่สุดก่อน" action={<Segmented label="Log kind" options={KINDS} value={kind} onChange={setKind} />}>
+      <CardState status={q.isPending ? 'loading' : q.isError ? 'error' : rows.length ? 'ready' : 'empty'} empty="ยังไม่มีบันทึก" onRetry={() => q.refetch()} skeleton={<Skeleton className="h-32" />}>
+        <DataTable
+          rowKey={(e) => `${e.ts}|${e.kind}|${e.title}|${e.detail}`}
+          rows={rows}
+          columns={[
+            { key: 't', header: 'Time', render: (e) => new Date(e.ts).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'medium' }) },
+            { key: 'k', header: 'Kind', render: (e) => e.kind },
+            { key: 'title', header: 'Event', render: (e) => <span className={LEVEL_CLASS[e.level]}>{e.title}</span> },
+            { key: 'd', header: 'Detail', render: (e) => <span className="text-secondary">{e.detail || '—'}</span> },
+          ]}
+        />
+      </CardState>
+    </Card>
+  )
+}
+
+function RunnerBanner({ status }: { status: string }) {
+  const q = useRunner()
+  const active = status === 'PAPER' || status === 'RUNNING'
+  if (!active || q.isPending || q.data?.alive) return null
+  return (
+    <InsetPanel role="alert" className="text-down text-[13px]">
+      ⚠ ตัวรันบอท (runner) ไม่ตอบสนอง — บอทนี้จะไม่เปิดออเดอร์ใหม่และไม่ดูแลสถานะจนกว่าจะกลับมา ตรวจ <code>docker compose ps runner</code>
+    </InsetPanel>
+  )
+}
+
 export default function BotDetail() {
   const { id = '' } = useParams()
   const bot = useBot(id)
@@ -156,6 +192,7 @@ export default function BotDetail() {
         </div>
         <Controls id={id} status={b.status} />
       </div>
+      <RunnerBanner status={b.status} />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <StatTile label="Net PnL" value={p ? <Signed value={num(p.net_pnl)} /> : '—'} />
@@ -214,6 +251,7 @@ export default function BotDetail() {
         </CardState>
       </Card>
 
+      <LogsCard id={id} />
       <ConfigCard bot={b} />
       <SignalDrawer s={open} onClose={() => setOpen(null)} />
     </div>

@@ -155,7 +155,8 @@ class Services:
     job_lock: asyncio.Lock = field(default_factory=asyncio.Lock)  # one backtest at a time
     tasks: set[asyncio.Task[None]] = field(default_factory=set)
     exec_store: ExecutionStore = field(default_factory=InMemoryExecutionStore)
-    engine_attached: bool = False  # no trading engine runs yet (Phase 5 has no bot runtime)
+    redis: Any | None = None  # heartbeat of the bot runner
+    engine_attached: bool = False
     extras: dict[str, Any] = field(default_factory=dict)
 
     def get_cipher(self) -> EnvelopeCipher:

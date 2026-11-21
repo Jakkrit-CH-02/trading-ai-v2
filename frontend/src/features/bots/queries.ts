@@ -12,6 +12,10 @@ export const usePerformance = (id: string) => useQuery({ queryKey: ['perf', id],
 export const useSignals = (id: string, decision?: string) =>
   useQuery({ queryKey: ['signals', id, decision], queryFn: () => api<Signal[]>(`/signals?bot_id=${id}${decision ? `&decision=${decision}` : ''}`) })
 export const useBotTrades = (id: string) => useQuery({ queryKey: ['bot-trades', id], queryFn: () => api<Schemas['TradeOut'][]>(`/trades?bot_id=${id}`) })
+export const useBotLogs = (id: string) =>
+  useQuery({ queryKey: ['bot-logs', id], queryFn: () => api<Schemas['LogEntryOut'][]>(`/bots/${id}/logs?limit=200`), refetchInterval: 10_000 })
+export const useRunner = () =>
+  useQuery({ queryKey: ['runner'], queryFn: () => api<Schemas['RunnerStatus']>('/runner/status'), refetchInterval: 10_000 })
 export const useStrategies = () => useQuery({ queryKey: ['strategies'], queryFn: () => api<Schemas['StrategyPreset'][]>('/strategies'), staleTime: Infinity })
 export const useAccounts = () => useQuery({ queryKey: ['accounts'], queryFn: () => api<Schemas['AccountOut'][]>('/accounts') })
 
