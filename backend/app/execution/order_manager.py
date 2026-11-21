@@ -295,7 +295,8 @@ class OrderManager:
             qty=qty,
             avg_entry=avg,
             stop=stop,
-            tp1=tp1,
+            tp1=tp1 if intent.place_tp else None,
+            tp1_close_fraction=intent.tp1_close_fraction or self.cfg.tp1_close_fraction,
             entry_cid=entry_cid,
             opened_at=self._now(),
             entry_cost=info.executed_qty * avg + quote_fee,
@@ -333,7 +334,7 @@ class OrderManager:
         stop_limit = round_price(pos.stop * (1 - self.cfg.stop_limit_buffer), f.tick_size)
         tp_qty = ZERO
         if pos.tp1 is not None and not pos.tp1_done:
-            tp_qty = quantize_down(qty * self.cfg.tp1_close_fraction, f.step_size)
+            tp_qty = quantize_down(qty * pos.tp1_close_fraction, f.step_size)
         rest = qty - tp_qty
         use_oco = pos.tp1 is not None and tp_qty >= f.min_qty and tp_qty * pos.tp1 >= f.min_notional
         if use_oco and not (rest >= f.min_qty and rest * stop_limit >= f.min_notional):
@@ -502,6 +503,54 @@ class OrderManager:
                 return [*events, f"EMERGENCY_{res.status}"]
         await self.store.save_position(pos)
         return events
+
+    async def close_position(self, symbol: str, reason: str) -> bool:
+        """Leave the position now, at market (time stop, false breakout...). The exchange-side
+        stop/TP lock the coins, so they are cancelled first; if the sale then fails the stop is
+        put back so the position is never left naked. Returns True if it was closed."""
+        pos = await self.store.get_position(symbol)
+        if pos is None:
+            return False
+        await self._cancel_everything(symbol)
+        events = await self.sync_position(symbol)
+        if any(e.startswith("CLOSED_") for e in events):
+            return True  # a stop/target filled while we were cancelling: nothing left to sell
+        if events:  # e.g. TP1 filled meanwhile and a new stop was placed: free the coins again
+            await self._cancel_everything(symbol)
+        pos = await self.store.get_position(symbol)
+        if pos is None:
+            return True
+        try:
+            bal = (await self.adapter.balances()).get(pos.base_asset)
+            f = await self._filters_for(symbol)
+            qty = quantize_down(min(pos.qty, bal.free if bal else ZERO), f.step_size)
+            cid = make_client_order_id(pos.bot_id, pos.signal_id, f"c{pos.version}")
+            if qty <= 0:
+                raise ExchangeError("nothing to sell")
+            pos.order_cids.append(cid)
+            info = await self._place(
+                (pos.bot_id, pos.signal_id),
+                symbol,
+                Side.SELL,
+                OrderType.MARKET,
+                qty,
+                cid,
+                "EXIT",
+            )
+            if info.executed_qty <= 0:
+                raise ExchangeError("exit order did not fill")
+        except ExchangeError as e:
+            self._note_error(e)
+            await self._event(
+                "EXIT_FAILED",
+                "critical",
+                {"symbol": symbol, "reason": reason, "error": repr(e)},
+                pos.bot_id,
+            )
+            await self._reprotect(pos)  # never leave it without a stop
+            return False
+        await self._finalize(pos, reason)
+        return True
 
     async def _reprotect(self, pos: Position) -> bool:
         """Cancel the current exits and place new ones (balances are locked by the old orders,

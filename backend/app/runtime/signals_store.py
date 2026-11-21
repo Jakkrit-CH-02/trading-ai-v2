@@ -4,11 +4,11 @@ import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.models import Position, Side, Trade
+from app.core.models import Decision, Position, Side, Trade
 from app.core.models import Signal as SignalRow
 from app.runtime.plan import ExitPlan, jsonable
 from app.strategies.decision import BarDecision
@@ -91,3 +91,17 @@ async def in_cooldown(
     )
     async with sessions() as db:
         return bool((await db.execute(q)).scalar_one())
+
+
+async def update_outcome(
+    sessions: async_sessionmaker[AsyncSession],
+    signal_id: uuid.UUID,
+    reason: str,
+    decision: Decision | None = None,
+) -> None:
+    """What happened to a TAKEN signal after the Risk Engine / exchange had their say."""
+    values: dict[str, object] = {"reject_reason": reason[:1000]}
+    if decision is not None:
+        values["decision"] = decision
+    async with sessions.begin() as db:
+        await db.execute(update(SignalRow).where(SignalRow.id == signal_id).values(**values))

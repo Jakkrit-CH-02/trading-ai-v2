@@ -286,6 +286,8 @@ class Order(Timestamps, Base):
     id: Mapped[uuid.UUID] = _pk()
     bot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("bots.id"))  # NULL = manual
     signal_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("signals.id"))
+    # exchange account the order lives on; NULL = the API's own (.env) account (manual orders)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("exchange_accounts.id"))
     client_order_id: Mapped[str] = mapped_column(String(64), unique=True)
     exchange_order_id: Mapped[str | None] = mapped_column(String(64))
     symbol: Mapped[str] = mapped_column(String(20))
@@ -319,6 +321,7 @@ class Position(Timestamps, Base):
 
     id: Mapped[uuid.UUID] = _pk()
     bot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("bots.id"))  # NULL = manual
+    account_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("exchange_accounts.id"))
     symbol: Mapped[str] = mapped_column(String(20))
     side: Mapped[Side] = mapped_column(_enum(Side))
     qty: Mapped[Decimal] = mapped_column(_num())

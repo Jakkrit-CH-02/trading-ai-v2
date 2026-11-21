@@ -117,8 +117,21 @@ def order_info(row: Order) -> OrderInfo:
 
 
 class PgExecutionStore:
-    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+    """``account_id`` scopes what this store sees: ``None`` is the API's own (.env) account
+    (manual orders); a bot's account gets its own scope, so one account's reconciler never
+    touches another account's orders or positions."""
+
+    def __init__(
+        self, sessions: async_sessionmaker[AsyncSession], account_id: uuid.UUID | None = None
+    ) -> None:
         self._sessions = sessions
+        self.account_id = account_id
+
+    def for_account(self, account_id: uuid.UUID | None) -> "PgExecutionStore":
+        return PgExecutionStore(self._sessions, account_id)
+
+    def _scope(self, column: Any) -> Any:
+        return column.is_(None) if self.account_id is None else column == self.account_id
 
     async def has_order(self, client_order_id: str) -> bool:
         async with self._sessions() as db:
@@ -131,6 +144,7 @@ class PgExecutionStore:
         stmt = pg_insert(Order).values(
             bot_id=as_uuid(bot_id),
             signal_id=as_uuid(signal_id),
+            account_id=self.account_id,
             client_order_id=info.client_order_id,
             exchange_order_id=info.exchange_order_id,
             symbol=info.symbol,
@@ -188,13 +202,15 @@ class PgExecutionStore:
     async def open_orders(self) -> list[OrderInfo]:
         open_states = [s.value for s in OrderStatus if s.is_open]
         async with self._sessions() as db:
-            rows = (await db.execute(select(Order).where(Order.status.in_(open_states)))).scalars()
+            q = select(Order).where(Order.status.in_(open_states), self._scope(Order.account_id))
+            rows = (await db.execute(q)).scalars()
             return [order_info(r) for r in rows]
 
     async def save_position(self, position: Position) -> None:
         now = datetime.now(UTC)
         values: dict[str, Any] = {
             "bot_id": as_uuid(position.bot_id),
+            "account_id": self.account_id,
             "symbol": position.symbol,
             "side": Side.BUY,
             "qty": position.qty,
@@ -215,7 +231,9 @@ class PgExecutionStore:
             await db.execute(stmt)
 
     async def _open(self, db: AsyncSession, symbol: str | None = None) -> list[Position]:
-        q = select(PositionRow).where(PositionRow.status == PositionStatus.OPEN)
+        q = select(PositionRow).where(
+            PositionRow.status == PositionStatus.OPEN, self._scope(PositionRow.account_id)
+        )
         if symbol is not None:
             q = q.where(PositionRow.symbol == symbol)
         rows = (await db.execute(q.order_by(PositionRow.opened_at))).scalars()

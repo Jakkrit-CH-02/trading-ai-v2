@@ -15,8 +15,12 @@ from app.core.config import get_settings
 from app.core.db import make_engine, make_session_factory
 from app.core.logging import configure_logging
 from app.exchange.types import ms_to_dt
+from app.execution.pg_store import PgExecutionStore
 from app.marketdata.publisher import STREAM
 from app.marketdata.store import PgCandleStore
+from app.notify.telegram import make_notifier
+from app.runtime.accounts import AccountPool, binance_adapter_factory
+from app.runtime.executor import Executor
 from app.runtime.runner import BotRunner
 
 GROUP = "runner"
@@ -31,11 +35,24 @@ async def heartbeat(redis: Redis, every_s: float = 10.0) -> None:
         await asyncio.sleep(every_s)
 
 
-async def handle(runner: BotRunner, redis: Redis, msg_id: str, fields: dict[str, str]) -> None:
+async def supervise(executor: Executor, every_s: float = 5.0) -> None:
+    """Kill switch, equity snapshots and reconcilers: independent of candle traffic."""
+    while True:
+        try:
+            await executor.tick()
+        except Exception:
+            log.exception("runner.tick_failed")
+        await asyncio.sleep(every_s)
+
+
+async def handle(
+    runner: BotRunner, executor: Executor, redis: Redis, msg_id: str, fields: dict[str, str]
+) -> None:
     try:
-        await runner.on_candle_closed(
-            fields["symbol"], fields["interval"], ms_to_dt(int(fields["open_time"]))
-        )
+        symbol, interval = fields["symbol"], fields["interval"]
+        bar = ms_to_dt(int(fields["open_time"]))
+        await executor.manage(symbol, interval, bar)  # existing positions first (as backtest)
+        await runner.on_candle_closed(symbol, interval, bar)  # then new entries
     except Exception:  # never let one bad candle stop the loop; it stays pending for a retry
         log.exception("runner.candle_failed", id=msg_id, fields=fields)
         return
@@ -50,8 +67,18 @@ async def main() -> None:
     redis: Redis = Redis.from_url(s.redis_url, decode_responses=True)
     with contextlib.suppress(Exception):  # BUSYGROUP: it already exists
         await redis.xgroup_create(STREAM, GROUP, id="$", mkstream=True)
-    runner = BotRunner(sessions, PgCandleStore(sessions))
+    candles = PgCandleStore(sessions)
+    pool = AccountPool(sessions, PgExecutionStore(sessions), binance_adapter_factory(s))
+    executor = Executor(
+        sessions,
+        pool,
+        candles,
+        s.symbols,
+        notifier=make_notifier(s.telegram_bot_token.get_secret_value(), s.telegram_chat_id),
+    )
+    runner = BotRunner(sessions, candles, act=executor.act)
     beat = asyncio.create_task(heartbeat(redis))
+    supervisor = asyncio.create_task(supervise(executor))
     log.info("runner.started")
     try:
         cursor = "0"  # first drain what a previous run left unacknowledged, then go live
@@ -64,13 +91,16 @@ async def main() -> None:
                 cursor = ">"
                 continue
             for msg_id, fields in batch:
-                await handle(runner, redis, msg_id, fields)
+                await handle(runner, executor, redis, msg_id, fields)
             if cursor == "0" and batch:
                 cursor = batch[-1][0]  # keep draining pending messages, in order
     finally:
-        beat.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await beat
+        for task in (beat, supervisor):
+            task.cancel()
+        for task in (beat, supervisor):
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        await executor.aclose()
         await redis.aclose()
         await engine.dispose()
 

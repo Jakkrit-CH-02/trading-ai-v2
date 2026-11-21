@@ -52,6 +52,7 @@ class Position:
     stop_cids: list[str] = field(default_factory=list)  # live stop-loss legs
     tp_cid: str | None = None
     tp1_done: bool = False
+    tp1_close_fraction: Decimal = Decimal("0.5")
     protected: bool = False
     version: int = 0  # bumps every time stops are (re)placed -> unique client ids
     closed: bool = False

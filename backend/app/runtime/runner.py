@@ -81,6 +81,34 @@ async def load_active_bots(sessions: async_sessionmaker[AsyncSession]) -> list[B
     return out
 
 
+async def load_bot(sessions: async_sessionmaker[AsyncSession], bot_id: uuid.UUID) -> BotSpec | None:
+    """One bot with its newest active config, whatever its status (positions of a paused bot
+    are still managed)."""
+    async with sessions() as db:
+        row = (
+            await db.execute(
+                select(Bot, StrategyConfig)
+                .join(StrategyConfig, StrategyConfig.bot_id == Bot.id)
+                .where(Bot.id == bot_id, StrategyConfig.is_active.is_(True))
+                .order_by(StrategyConfig.version.desc())
+                .limit(1)
+            )
+        ).first()
+    if row is None:
+        return None
+    bot, cfg = row
+    return BotSpec(
+        bot.id,
+        bot.name,
+        cfg.strategy.lower(),
+        dict(cfg.params or {}),
+        tuple(bot.symbols),
+        BotStatus(bot.status),
+        bot.account_id,
+        cfg.id,
+    )
+
+
 def build_strategy(name: str, params: dict[str, Any]) -> Strategy:
     """Config params are numbers; cast to each parameter's declared type like the API does."""
     defaults = default_params(name)
