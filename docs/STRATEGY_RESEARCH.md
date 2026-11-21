@@ -43,3 +43,20 @@ Same method and costs; SOL only has data from 2020-08. No code or parameter chan
 - Only 2022 (−1.6%) is a clearly bad year; no year loses > 10% (the yearly criterion passes, because the sleeves are small).
 - S2 is negative on every symbol and every regime period: rejected. S3 produces ~1 trade per symbol per 3 years under SPEC conditions: untestable as specified.
 - Conclusion: S1 is a break-even strategy, not a Gate 1 candidate; no parameter tuning justified. Next: plan B (different families) and plan C (cost measurement).
+
+## Plan B (2026-11-21): S5 Donchian trend-following — rules fixed BEFORE any run
+Different family from S1-S3: slow trend following on 4H, long only (spot), few trades held for days/weeks so fees weigh less.
+Textbook constants (Turtle-style), none tuned on our data. One run on 7y pooled walk-forward OOS; whatever comes out is recorded. No variants afterwards.
+- Entry (4H close): close > highest high of the previous 55 bars AND close > EMA200 AND BTC regime != TREND_DOWN.
+- Stop: entry − 3 × ATR(14) (fixed distance). Exit: Chandelier trailing stop 3 × ATR(22) from entry (no TP1). `rr_target` = entry + 3R, a reference for the Risk Engine's R:R check only.
+- S_tech factors (base 60 + 10 each): ADX(14) > 25; BTC regime TREND_UP; volume > 1.5 × 20-bar average; close > EMA50 > EMA200.
+- Same costs, filters, Risk Engine and Gate 1 criteria as before. Pass bar unchanged (SPEC 11.2).
+
+### Plan B result (single pre-registered run, 7y pooled walk-forward OOS)
+| Strategy | Trades | PF | Expectancy | Sharpe | Max DD | Win rate | Gate 1 |
+|---|---|---|---|---|---|---|---|
+| S5 Donchian 55 / EMA200 / 3×ATR trail | 447 | 1.41 | +0.16R | 0.76 | 1.3% | 39.1% | FAIL — only Sharpe 0.76 < 1.0 |
+
+- Per symbol all positive: BTC 1.21, ETH 1.25, SOL 1.41, BNB 1.96, XRP 1.19 (82-97 trades each). Yearly: 2021 +1.7%, 2022 +0.2% (bear year survives), 2023 +0.9%, 2024 +0.5%, 2025 +0.9%, 2026 −0.4%. Monte Carlo: p95 max DD 6.0%, final return p5 +20.3% (reordering only).
+- First strategy here with a positive out-of-sample edge, but: expectancy +0.16R clears the +0.15R bar by 0.01R (inside noise); Sharpe misses; BNB (PF 1.96) carries a large share; a long-only trend system in 2020-2026 crypto rides market beta.
+- NOT a pass. Criteria unchanged, no variant run (pre-registered). Not eligible for paper trading until it passes gate 1.

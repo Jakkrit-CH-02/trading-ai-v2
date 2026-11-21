@@ -248,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     bf.add_argument("--years", type=float, default=3.0)
     bf.add_argument("--days", type=int, help="overrides --years (handy for small test runs)")
     bt = sub.add_parser("backtest", help="event-driven backtest on stored candles")
-    bt.add_argument("--strategy", required=True, choices=["s1", "s2", "s3", "s4"])
+    bt.add_argument("--strategy", required=True, choices=["s1", "s2", "s3", "s4", "s5"])
     bt.add_argument("--symbol", default="BTCUSDT")
     bt.add_argument(
         "--symbols", nargs="+", help="pooled equal-weight walk-forward over these symbols"

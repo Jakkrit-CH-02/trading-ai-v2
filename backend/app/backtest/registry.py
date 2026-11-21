@@ -7,11 +7,12 @@ from typing import Any
 from app.backtest.engine import BacktestConfig, BacktestResult, run_backtest
 from app.backtest.grid import run_grid_backtest
 from app.strategies.base import Strategy
-from app.strategies.params import S1Params, S2Params, S3Params, S4Params
+from app.strategies.params import S1Params, S2Params, S3Params, S4Params, S5Params
 from app.strategies.s1_trend import S1Trend
 from app.strategies.s2_meanrev import S2MeanReversion
 from app.strategies.s3_breakout import S3Breakout
 from app.strategies.s4_grid import S4Grid
+from app.strategies.s5_donchian import S5Donchian
 
 AnyStrategy = Strategy | S4Grid
 
@@ -20,6 +21,7 @@ _FACTORIES: dict[str, tuple[Any, Any]] = {
     "s2": (S2MeanReversion, S2Params),
     "s3": (S3Breakout, S3Params),
     "s4": (S4Grid, S4Params),
+    "s5": (S5Donchian, S5Params),
 }
 
 

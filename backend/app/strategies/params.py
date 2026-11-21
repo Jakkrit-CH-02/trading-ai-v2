@@ -71,6 +71,19 @@ class S3Params:
 
 
 @dataclass(frozen=True, slots=True)
+class S5Params:
+    donchian: int = 55
+    ema_trend: int = 200
+    atr_period: int = 14
+    stop_atr: float = 3.0
+    trail_mult: float = 3.0
+    trail_period: int = 22
+    vol_period: int = 20
+    rr_reference: float = 3.0  # reference target for the Risk Engine R:R check only
+    regime: RegimeParams = field(default_factory=RegimeParams)
+
+
+@dataclass(frozen=True, slots=True)
 class S4Params:
     lookback: int = 168  # bars (1h) used to find support/resistance
     min_levels: int = 10

@@ -13,6 +13,7 @@ from app.strategies.params import S3Params
 from app.strategies.s1_trend import S1Trend
 from app.strategies.s2_meanrev import S2MeanReversion
 from app.strategies.s3_breakout import S3Breakout
+from app.strategies.s5_donchian import S5Donchian
 from app.strategies.scoring import ScoreWeights, score_signal
 from app.strategies.types import Regime, Signal
 from tests import synth
@@ -78,6 +79,7 @@ STRATEGIES: dict[str, Strategy] = {
     "s1": S1Trend(),
     "s2": S2MeanReversion(),
     "s3_wide": S3Breakout(WIDE),
+    "s5": S5Donchian(),
 }
 
 
