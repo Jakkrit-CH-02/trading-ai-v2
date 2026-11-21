@@ -718,6 +718,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/briefs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Briefs
+         * @description Newest brief per coin, or the history of one coin when ``symbol`` is given.
+         */
+        get: operations["briefs_api_v1_ai_briefs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/news": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** News */
+        get: operations["news_api_v1_ai_news_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status */
+        get: operations["status_api_v1_ai_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/briefs/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh */
+        post: operations["refresh_api_v1_ai_briefs_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -761,6 +832,19 @@ export interface components {
             api_key_last4: string;
             /** Permissions Checked At */
             permissions_checked_at: string | null;
+        };
+        /** AiStatus */
+        AiStatus: {
+            /** Worker Alive */
+            worker_alive: boolean;
+            /** Key Configured */
+            key_configured: boolean;
+            /** Month Spend Usd */
+            month_spend_usd: string;
+            /** Budget Usd */
+            budget_usd: number;
+            /** Last News At */
+            last_news_at: string | null;
         };
         /** Allocation */
         Allocation: {
@@ -930,6 +1014,37 @@ export interface components {
             detail: string;
             /** Until */
             until?: string | null;
+        };
+        /** BriefOut */
+        BriefOut: {
+            /** Id */
+            id: string;
+            /** Symbol */
+            symbol: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Model */
+            model: string;
+            /**
+             * Bias
+             * @enum {string}
+             */
+            bias: "bull" | "neutral" | "bear";
+            /** S Ai */
+            s_ai: number;
+            /** Support */
+            support: number[];
+            /** Resistance */
+            resistance: number[];
+            /** Risks */
+            risks: string[];
+            /** Summary Th */
+            summary_th: string[];
+            /** Cost Usd */
+            cost_usd: string;
         };
         /** CandleOut */
         CandleOut: {
@@ -1130,6 +1245,30 @@ export interface components {
             /** Email */
             email: string;
         };
+        /** NewsOut */
+        NewsOut: {
+            /** Id */
+            id: string;
+            /** Source */
+            source: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Symbols */
+            symbols: string[];
+            /** Sentiment */
+            sentiment: number | null;
+            /** Severity */
+            severity: number | null;
+            /** Category */
+            category: string | null;
+        };
         /** NotificationsOut */
         NotificationsOut: {
             /** Telegram Configured */
@@ -1249,6 +1388,11 @@ export interface components {
             checks: components["schemas"]["CheckOut"][];
             /** Adjustments */
             adjustments: string[];
+        };
+        /** RefreshIn */
+        RefreshIn: {
+            /** Symbol */
+            symbol: string;
         };
         /** RiskEventOut */
         RiskEventOut: {
@@ -2984,6 +3128,142 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    briefs_api_v1_ai_briefs_get: {
+        parameters: {
+            query?: {
+                symbol?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BriefOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    news_api_v1_ai_news_get: {
+        parameters: {
+            query?: {
+                symbol?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewsOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    status_api_v1_ai_status_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_api_v1_ai_briefs_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefreshIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
             };
             /** @description Validation Error */
             422: {

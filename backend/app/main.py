@@ -19,6 +19,9 @@ from app.api import (
     ws,
 )
 from app.api import (
+    ai as ai_routes,
+)
+from app.api import (
     orders as orders_api,
 )
 from app.api.services import BinanceMarketGateway, Services
@@ -115,6 +118,7 @@ def create_app(services: Services | None = None) -> FastAPI:
     app.include_router(backtests.router)
     app.include_router(orders_api.router)
     app.include_router(settings_routes.router)
+    app.include_router(ai_routes.router)
     app.include_router(ws.router)
     return app
 

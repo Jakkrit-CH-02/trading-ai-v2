@@ -2,6 +2,7 @@ import { ArrowRightLeft, ArrowUpRight, Ellipsis, Minus, Plus } from 'lucide-reac
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { num, type Schemas } from '../../lib/api'
+import { BIAS_LABEL, useBriefs } from '../ai/queries'
 import { useRealtime } from '../../lib/realtime'
 import {
   AllocationBars, AssetRow, BotStatusPill, Card, CardState, DataTable, Drawer, Gauge, IconButton, InsetPanel, PriceChart, PrimaryButton, Segmented,
@@ -135,6 +136,7 @@ export function WatchlistCard({ selected, onSelect }: { selected: string; onSele
 
 export function BotsCard({ symbol }: { symbol: string }) {
   const q = useBots()
+  const brief = useBriefs(symbol).data?.[0]
   const risk = useRealtime((s) => s.risk)
   const nav = useNavigate()
   const d = q.data
@@ -154,8 +156,11 @@ export function BotsCard({ symbol }: { symbol: string }) {
         )}
       </CardState>
       <InsetPanel className="text-secondary flex flex-col gap-2">
-        <span className="text-primary text-[13px] font-semibold">{base(symbol)} · AI brief</span>
-        ยังไม่เปิดใช้งาน AI Analyst — มาใน Phase ถัดไป
+        <span className="text-primary text-[13px] font-semibold">
+          {base(symbol)} · AI brief
+          {brief && <span className={brief.bias === 'bull' ? 'text-up' : brief.bias === 'bear' ? 'text-down' : ''}> · {BIAS_LABEL[brief.bias]} (S_ai {brief.s_ai.toFixed(0)})</span>}
+        </span>
+        {brief ? brief.summary_th[0] : 'ยังไม่มี brief — ดูสถานะที่หน้า AI Analyst'}
       </InsetPanel>
       <PrimaryButton className="mt-auto" onClick={() => nav('/bots')}>
         Open bot

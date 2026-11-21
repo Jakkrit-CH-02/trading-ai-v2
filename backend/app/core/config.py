@@ -33,6 +33,17 @@ class Settings(BaseSettings):
     # Demo/testnet credentials (fake money only). Never logged, never sent to an LLM.
     binance_api_key: SecretStr = SecretStr("")
     binance_api_secret: SecretStr = SecretStr("")
+    # AI layer (SPEC 4). Only the ai-worker service gets the key; never logged, never in a prompt.
+    anthropic_api_key: SecretStr = SecretStr("")
+    ai_news_model: str = "claude-haiku-5-5"
+    ai_brief_model: str = "claude-sonnet-5-5"
+    ai_monthly_budget_usd: float = 20.0
+    ai_timeout_s: float = 20.0  # SPEC 4.2: past this the bot carries on with S_ai = 50
+    news_feeds: list[str] = [
+        "CoinDesk|https://www.coindesk.com/arc/outboundfeeds/rss/",
+        "Cointelegraph|https://cointelegraph.com/rss",
+        "Decrypt|https://decrypt.co/feed",
+    ]
 
 
 @lru_cache

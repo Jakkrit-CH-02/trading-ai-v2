@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TotpHost } from '../lib/totp'
+import { Toaster } from '../ui'
+import AiAnalyst from './ai/AiAnalyst'
 import BotDetail from './bots/BotDetail'
 import Bots from './bots/Bots'
 import Wizard from './bots/Wizard'
@@ -45,6 +47,7 @@ function renderAt(path: string, ui: React.ReactNode = null) {
           <Route path="/bots/:id" element={<BotDetail />} />
           <Route path="/settings" element={<RiskSettings />} />
           <Route path="/trade" element={<Trade />} />
+          <Route path="/ai" element={<AiAnalyst />} />
         </Routes>
         <TotpHost />
         {ui}
@@ -250,5 +253,51 @@ describe('Trade', () => {
     await fill()
     expect(await screen.findByText(/risk_reward: R:R 0.6 < 1.5/, {}, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Buy BTC' })).toBeDisabled()
+  })
+})
+
+describe('AI Analyst', () => {
+  const brief = { id: 'x1', symbol: 'BTCUSDT', created_at: '2026-11-21T06:00:00Z', model: 'claude-sonnet-5-5', bias: 'bull', s_ai: 72, support: [55000], resistance: [60000], risks: ['funding สูง'], summary_th: ['บรรทัดแรก', 'บรรทัดสอง', 'บรรทัดสาม'], cost_usd: '0.01' }
+  const status = { worker_alive: true, key_configured: true, month_spend_usd: '1.50', budget_usd: 20, last_news_at: null }
+  const news = [{ id: 'n1', source: 'CoinDesk', title: 'ETF approved', url: 'https://x.test/a', published_at: '2026-11-21T05:00:00Z', symbols: ['BTC'], sentiment: 0.6, severity: 0.4, category: 'regulation' }]
+
+  it('shows the brief, the spend and the headlines', async () => {
+    mockApi({ 'GET /ai/briefs': () => [brief], 'GET /ai/news': () => news, 'GET /ai/status': () => status })
+    renderAt('/ai')
+    expect(await screen.findByText('บรรทัดแรก')).toBeInTheDocument()
+    expect(screen.getByText(/Bullish · S_ai 72/)).toBeInTheDocument()
+    expect(screen.getByText(/ค่าใช้จ่ายเดือนนี้ \$1.50 \/ \$20/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'ETF approved' })).toHaveAttribute('href', 'https://x.test/a')
+    expect(screen.getByText(/ไม่มีสิทธิ์ส่งออเดอร์/)).toBeInTheDocument()
+  })
+
+  it('explains a missing key and an empty state instead of a blank page', async () => {
+    mockApi({ 'GET /ai/briefs': () => [], 'GET /ai/news': () => [], 'GET /ai/status': () => ({ ...status, key_configured: false }) })
+    renderAt('/ai')
+    expect(await screen.findByText(/ยังไม่ได้ตั้ง ANTHROPIC_API_KEY/)).toBeInTheDocument()
+    expect(screen.getByText('ยังไม่มี brief ของ BTC')).toBeInTheDocument()
+  })
+
+  it('warns when the worker is down and says the bots are unaffected', async () => {
+    mockApi({ 'GET /ai/briefs': () => [], 'GET /ai/news': () => [], 'GET /ai/status': () => ({ ...status, worker_alive: false }) })
+    renderAt('/ai')
+    expect(await screen.findByText('AI worker ไม่ตอบสนอง')).toBeInTheDocument()
+    expect(screen.getByText(/บอทเทรดไม่ได้รับผลกระทบ/)).toBeInTheDocument()
+  })
+
+  it('queues a refresh for the selected coin and reports a rate limit', async () => {
+    let n = 0
+    mockApi({
+      'GET /ai/briefs': () => [brief],
+      'GET /ai/news': () => news,
+      'GET /ai/status': () => status,
+      'POST /ai/briefs/refresh': () => (n++ === 0 ? { status: 'queued' } : { __status: 429, body: { detail: 'refreshed a moment ago' } }),
+    })
+    renderAt('/ai', <Toaster />)
+    await screen.findByText('บรรทัดแรก')
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh brief' }))
+    await waitFor(() => expect(calls.find((c) => c.path === '/ai/briefs/refresh')?.init?.body).toBe(JSON.stringify({ symbol: 'BTCUSDT' })))
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh brief' }))
+    expect(await screen.findByText('refreshed a moment ago')).toBeInTheDocument()
   })
 })

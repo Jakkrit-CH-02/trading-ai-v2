@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Outlet, Route, Routes } from 'react-router-dom'
+import AiAnalyst from './features/ai/AiAnalyst'
 import Login from './features/auth/Login'
 import BacktestLab from './features/backtest/BacktestLab'
 import BotDetail from './features/bots/BotDetail'
@@ -11,14 +12,9 @@ import Trade from './features/trade/Trade'
 import Dashboard from './features/dashboard/Dashboard'
 import { refresh, useAuth } from './lib/auth'
 import Shell from './shell/Shell'
-import { Card } from './ui'
 
 const DevUi = lazy(() => import('./features/dev/DevUi'))
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000, retry: 1 } } })
-
-function Soon({ name }: { name: string }) {
-  return <Card title={name} subtitle="Planned for Phase 6 (AI layer)" />
-}
 
 function Gate() {
   const { token, ready, setReady } = useAuth()
@@ -44,9 +40,7 @@ export default function App() {
             <Route path="backtest" element={<BacktestLab />} />
             <Route path="settings" element={<RiskSettings />} />
             <Route path="trade" element={<Trade />} />
-            {['ai'].map((p) => (
-              <Route key={p} path={p} element={<Soon name={p} />} />
-            ))}
+            <Route path="ai" element={<AiAnalyst />} />
             <Route
               path="dev/ui"
               element={
