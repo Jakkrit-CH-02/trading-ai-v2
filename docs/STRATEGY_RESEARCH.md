@@ -75,3 +75,17 @@ Scenarios (per side): fee 0.100% (standard spot taker, baseline), 0.075% (spot w
 - Costs move Sharpe by ≤ 0.16 across the whole grid; even the most optimistic cell (0.92) stays below 1.0. Cost is not what blocks gate 1: the strategy's return per unit of risk is.
 - The obtainable scenario (BNB discount, 0.075%) is worth about +0.05 Sharpe and +0.01R. Baseline stays the number of record; the live fee should simply be set to the real account rate.
 - Remaining option for S5: portfolio-level diversification (more liquid symbols), pre-registered, since the five sleeves are all long-only crypto and highly correlated.
+
+## Plan D (2026-11-21): S5 over a wider universe — symbols fixed BEFORE running
+Selection rule (no look at performance): from today's Binance USDT spot pairs ranked by 24h quote volume, take the next 5 after BTC/ETH/SOL/XRP/BNB that are (a) real crypto assets (no stablecoins, tokenized stocks/gold) and (b) listed before 2022-11 (≥ 4y of history). Result: ZEC, NEAR, DOGE, UNI, TRX. (HYPE, PEPE, SUI, ENA excluded by (b).)
+Known bias: ranking uses today's volume (survivorship; ZEC is a recent spike). S5 rules, costs (0.10%/0.05%) and gate criteria unchanged; the 24h-volume liquidity filter (50M) still applies per bar. One run, 10 symbols pooled equal-weight, 7y walk-forward OOS.
+
+### Plan D result (S5, 10 symbols, 7y pooled OOS, single run)
+| Universe | Trades | PF | Expectancy | Sharpe | Gate 1 |
+|---|---|---|---|---|---|
+| original 5 | 447 | 1.41 | +0.16R | 0.76 | FAIL (Sharpe) |
+| + ZEC, NEAR, DOGE, UNI, TRX (10) | 740 | 1.23 | +0.10R | 0.53 | FAIL (PF, Sharpe, expectancy) |
+
+- New symbols: ZEC 1.09, NEAR 0.85, DOGE 1.13, UNI 0.63, TRX 0.81 (PF). Three of five are ≤ 1.0 / break-even: the edge does not carry over to a wider, rule-selected universe. Diversification did not lift Sharpe; it fell.
+- Reading: the original five (BNB PF 1.96 in particular) were the strongest of the large caps, so the 5-symbol result was probably flattered by the choice of universe. The honest S5 estimate is the 10-symbol one: PF ~1.2, +0.10R, Sharpe ~0.5 — a weak edge, below gate 1.
+- Status after plans A-D: no strategy passes gate 1. Stop tuning S1-S5; the gate stays unchanged. Further options need a genuinely new information source (e.g. funding/OI/derivatives data, which needs Futures data backfill), not more parameters.
