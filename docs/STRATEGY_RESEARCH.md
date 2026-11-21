@@ -60,3 +60,18 @@ Textbook constants (Turtle-style), none tuned on our data. One run on 7y pooled 
 - Per symbol all positive: BTC 1.21, ETH 1.25, SOL 1.41, BNB 1.96, XRP 1.19 (82-97 trades each). Yearly: 2021 +1.7%, 2022 +0.2% (bear year survives), 2023 +0.9%, 2024 +0.5%, 2025 +0.9%, 2026 −0.4%. Monte Carlo: p95 max DD 6.0%, final return p5 +20.3% (reordering only).
 - First strategy here with a positive out-of-sample edge, but: expectancy +0.16R clears the +0.15R bar by 0.01R (inside noise); Sharpe misses; BNB (PF 1.96) carries a large share; a long-only trend system in 2020-2026 crypto rides market beta.
 - NOT a pass. Criteria unchanged, no variant run (pre-registered). Not eligible for paper trading until it passes gate 1.
+
+## Plan C (2026-11-21): cost sensitivity of S5 — scenarios fixed BEFORE running
+Question: how much of S5's result depends on the cost assumption? Measurement only; gate criteria stay unchanged and the baseline (fee 0.10%, slippage 0.05%) remains the number of record unless a lower fee is actually obtainable.
+Scenarios (per side): fee 0.100% (standard spot taker, baseline), 0.075% (spot with BNB fee discount, obtainable today), 0.050% (needs VIP / futures taker; NOT assumed), × slippage 0.05% (baseline) and 0.02%. Same S5 rules, 7y pooled OOS, one run per cell.
+
+### Plan C result (S5, 7y pooled OOS, 447 trades in every cell)
+| fee / side | slippage 0.05% | slippage 0.02% |
+|---|---|---|
+| 0.100% (baseline) | PF 1.41, +0.16R, Sharpe 0.76 | PF 1.45, +0.17R, Sharpe 0.82 |
+| 0.075% (BNB discount) | PF 1.45, +0.17R, Sharpe 0.81 | PF 1.49, +0.18R, Sharpe 0.87 |
+| 0.050% (not assumed) | PF 1.48, +0.18R, Sharpe 0.86 | PF 1.53, +0.19R, Sharpe 0.92 |
+
+- Costs move Sharpe by ≤ 0.16 across the whole grid; even the most optimistic cell (0.92) stays below 1.0. Cost is not what blocks gate 1: the strategy's return per unit of risk is.
+- The obtainable scenario (BNB discount, 0.075%) is worth about +0.05 Sharpe and +0.01R. Baseline stays the number of record; the live fee should simply be set to the real account rate.
+- Remaining option for S5: portfolio-level diversification (more liquid symbols), pre-registered, since the five sleeves are all long-only crypto and highly correlated.
