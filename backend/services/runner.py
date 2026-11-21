@@ -10,6 +10,7 @@ from typing import Any
 
 import structlog
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
 from app.core.config import get_settings
 from app.core.db import make_engine, make_session_factory
@@ -64,7 +65,8 @@ async def main() -> None:
     configure_logging("runner")
     engine = make_engine()
     sessions = make_session_factory(engine)
-    redis: Redis = Redis.from_url(s.redis_url, decode_responses=True)
+    # the socket timeout must outlast the 5 s blocking read, or every idle read "times out"
+    redis: Redis = Redis.from_url(s.redis_url, decode_responses=True, socket_timeout=30)
     with contextlib.suppress(Exception):  # BUSYGROUP: it already exists
         await redis.xgroup_create(STREAM, GROUP, id="$", mkstream=True)
     candles = PgCandleStore(sessions)
@@ -83,9 +85,18 @@ async def main() -> None:
     try:
         cursor = "0"  # first drain what a previous run left unacknowledged, then go live
         while True:
-            resp: Any = await redis.xreadgroup(
-                GROUP, CONSUMER, {STREAM: cursor}, count=20, block=5000 if cursor == ">" else None
-            )
+            try:
+                resp: Any = await redis.xreadgroup(
+                    GROUP,
+                    CONSUMER,
+                    {STREAM: cursor},
+                    count=20,
+                    block=5000 if cursor == ">" else None,
+                )
+            except (RedisError, OSError):  # Redis restarting / network blip: retry, do not die
+                log.exception("runner.redis_unavailable")
+                await asyncio.sleep(2)
+                continue
             batch: list[tuple[str, dict[str, str]]] = resp[0][1] if resp else []
             if cursor == "0" and not batch:
                 cursor = ">"
