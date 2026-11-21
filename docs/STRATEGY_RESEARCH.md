@@ -29,3 +29,17 @@ Pooled = equal-weight portfolio of independent per-symbol sleeves (`softtrade ba
 - Next real options: different strategy families, ML/AI scoring (SPEC Phase 6), longer history (> 3y, incl. a bear market), shorter timeframes for more trades.
 - Keep gate 1 criteria unchanged; do not relax them to pass.
 - Known limitations: pooled sleeves ignore cross-symbol exposure caps; S3 `rr_target` (measured move) is a reference for the R:R check only.
+
+## Plan A (2026-11-21): 7 years of data (2019-12 → 2026-11), strategies unchanged
+Same method and costs; SOL only has data from 2020-08. No code or parameter changes (pre-registered: one run each).
+
+| Strategy | Pooled OOS trades | PF | Expectancy | Sharpe | Max DD | Gate 1 |
+|---|---|---|---|---|---|---|
+| S1 | 459 | 0.93 | −0.05R | −0.21 | 2.4% | FAIL (PF, Sharpe, expectancy) |
+| S2 | 64 | 0.23 | −0.52R | −1.47 | 1.8% | FAIL (also < 100 trades) |
+| S3 | 9 | 2.04 | +0.22R | 0.29 | 0.1% | FAIL (9 trades: no evidence either way) |
+
+- S1: the 3-year window (PF 0.67) was a bad stretch; over 7 years it is roughly break-even before any edge (win rate 34.4%). Per symbol: ETH 1.14, BNB 1.06, SOL 0.93, BTC 0.81, XRP 0.72. Fees paid 159 USDT vs net −115, so costs alone explain the loss.
+- Only 2022 (−1.6%) is a clearly bad year; no year loses > 10% (the yearly criterion passes, because the sleeves are small).
+- S2 is negative on every symbol and every regime period: rejected. S3 produces ~1 trade per symbol per 3 years under SPEC conditions: untestable as specified.
+- Conclusion: S1 is a break-even strategy, not a Gate 1 candidate; no parameter tuning justified. Next: plan B (different families) and plan C (cost measurement).
