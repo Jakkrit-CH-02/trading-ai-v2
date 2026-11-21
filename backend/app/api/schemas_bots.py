@@ -160,7 +160,17 @@ class LogEntryOut(BaseModel):
     detail: str = ""
 
 
+class RunnerEval(BaseModel):
+    """The latest candle the runner has judged for one symbol/timeframe."""
+
+    symbol: str
+    interval: str
+    bar_time: datetime
+    processed_at: datetime
+
+
 class RunnerStatus(BaseModel):
     alive: bool
     last_beat: datetime | None = None
     age_s: float | None = None
+    evaluated: list[RunnerEval] = []

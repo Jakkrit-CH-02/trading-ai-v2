@@ -159,13 +159,47 @@ function LogsCard({ id }: { id: string }) {
   )
 }
 
-function RunnerBanner({ status }: { status: string }) {
+function ago(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return `${s} วินาทีที่แล้ว`
+  if (s < 3600) return `${Math.floor(s / 60)} นาทีที่แล้ว`
+  return `${Math.floor(s / 3600)} ชม. ${Math.floor((s % 3600) / 60)} นาทีที่แล้ว`
+}
+const hhmm = (d: Date) => d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false })
+
+/** Always-visible proof of life: heartbeat, the last candle judged, and when the next one is due. */
+function RunnerCard({ status, symbols }: { status: string; symbols: string[] }) {
   const q = useRunner()
   const active = status === 'PAPER' || status === 'RUNNING'
-  if (!active || q.isPending || q.data?.alive) return null
+  if (!active || q.isPending) return null
+  if (!q.data?.alive) {
+    return (
+      <InsetPanel role="alert" className="text-down text-[13px]">
+        ⚠ ตัวรันบอท (runner) ไม่ตอบสนอง — บอทนี้จะไม่เปิดออเดอร์ใหม่และไม่ดูแลสถานะจนกว่าจะกลับมา ตรวจ <code>docker compose ps runner</code>
+      </InsetPanel>
+    )
+  }
+  const now = Date.now()
+  const nextHour = new Date(Math.floor(now / 3_600_000) * 3_600_000 + 3_600_000)
+  const seen = (q.data.evaluated ?? []).filter((e) => e.interval === '1h' && symbols.includes(e.symbol))
   return (
-    <InsetPanel role="alert" className="text-down text-[13px]">
-      ⚠ ตัวรันบอท (runner) ไม่ตอบสนอง — บอทนี้จะไม่เปิดออเดอร์ใหม่และไม่ดูแลสถานะจนกว่าจะกลับมา ตรวจ <code>docker compose ps runner</code>
+    <InsetPanel className="flex flex-col gap-1.5 text-[13px]" aria-label="Runner status">
+      <div className="flex items-center gap-2 font-semibold">
+        <span className="bg-up inline-block h-2.5 w-2.5 rounded-full" aria-hidden /> Runner ทำงานอยู่
+        <span className="text-secondary font-normal">· ส่งสัญญาณชีพล่าสุด {ago((q.data.age_s ?? 0) * 1000)}</span>
+      </div>
+      {seen.length === 0 ? (
+        <div className="text-secondary">ยังไม่ได้ตรวจแท่งเทียนใหม่หลังเริ่มระบบ</div>
+      ) : (
+        seen.map((e) => (
+          <div key={e.symbol} className="text-secondary">
+            ตรวจแท่ง 1h ของ {e.symbol} เวลา {hhmm(new Date(e.bar_time))} แล้ว ({ago(now - new Date(e.processed_at).getTime())})
+          </div>
+        ))
+      )}
+      <div className="text-secondary">
+        แท่งถัดไปปิด {hhmm(nextHour)} (อีก {Math.ceil((nextHour.getTime() - now) / 60_000)} นาที) · ถ้าไม่มีสัญญาณจะไม่มีออเดอร์ — เป็นเรื่องปกติของกลยุทธ์ที่เลือกจังหวะ
+      </div>
     </InsetPanel>
   )
 }
@@ -192,7 +226,7 @@ export default function BotDetail() {
         </div>
         <Controls id={id} status={b.status} />
       </div>
-      <RunnerBanner status={b.status} />
+      <RunnerCard status={b.status} symbols={b.symbols} />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <StatTile label="Net PnL" value={p ? <Signed value={num(p.net_pnl)} /> : '—'} />

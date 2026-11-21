@@ -5,6 +5,7 @@ messages are re-read on restart) and hands each closed candle to the BotRunner."
 
 import asyncio
 import contextlib
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,6 +28,7 @@ from app.runtime.runner import BotRunner
 GROUP = "runner"
 CONSUMER = "runner-1"
 HEARTBEAT_KEY = "runner:heartbeat"
+LAST_EVAL_KEY = "runner:last_eval"  # hash: "BTCUSDT:1h" -> {"bar", "at"}
 log = structlog.get_logger()
 
 
@@ -57,6 +59,9 @@ async def handle(
     except Exception:  # never let one bad candle stop the loop; it stays pending for a retry
         log.exception("runner.candle_failed", id=msg_id, fields=fields)
         return
+    with contextlib.suppress(Exception):  # a status note must never block the trading loop
+        note = {"bar": bar.isoformat(), "at": datetime.now(UTC).isoformat()}
+        await redis.hset(LAST_EVAL_KEY, f"{symbol}:{interval}", json.dumps(note))
     await redis.xack(STREAM, GROUP, msg_id)
 
 

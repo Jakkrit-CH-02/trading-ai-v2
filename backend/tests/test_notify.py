@@ -42,6 +42,8 @@ def test_notifier_is_null_without_configuration() -> None:
 def test_permission_assessment() -> None:
     assert assess_permissions({"canTrade": True, "canWithdraw": False}) == []
     assert len(assess_permissions({"canTrade": True, "canWithdraw": True})) == 1
+    assert assess_permissions({"canTrade": True, "canWithdraw": True}, sandbox=True) == []
+    assert len(assess_permissions({"canTrade": False, "canWithdraw": True}, sandbox=True)) == 1
     assert len(assess_permissions({"canTrade": False})) == 1
     assert len(assess_permissions({"canTrade": False, "canWithdraw": True})) == 2
 

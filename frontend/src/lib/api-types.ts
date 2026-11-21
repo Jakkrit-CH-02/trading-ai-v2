@@ -1330,6 +1330,26 @@ export interface components {
             /** Open Risk Cap Pct */
             open_risk_cap_pct: string;
         };
+        /**
+         * RunnerEval
+         * @description The latest candle the runner has judged for one symbol/timeframe.
+         */
+        RunnerEval: {
+            /** Symbol */
+            symbol: string;
+            /** Interval */
+            interval: string;
+            /**
+             * Bar Time
+             * Format: date-time
+             */
+            bar_time: string;
+            /**
+             * Processed At
+             * Format: date-time
+             */
+            processed_at: string;
+        };
         /** RunnerStatus */
         RunnerStatus: {
             /** Alive */
@@ -1338,6 +1358,11 @@ export interface components {
             last_beat?: string | null;
             /** Age S */
             age_s?: number | null;
+            /**
+             * Evaluated
+             * @default []
+             */
+            evaluated: components["schemas"]["RunnerEval"][];
         };
         /** Sentiment */
         Sentiment: {

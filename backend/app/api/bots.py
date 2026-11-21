@@ -1,6 +1,7 @@
 """Bots, strategy configs (immutable versions), lifecycle and the go-live gate (SPEC 8.1, 11)."""
 
 import dataclasses
+import json
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
@@ -20,6 +21,7 @@ from app.api.schemas_bots import (
     GoLiveIn,
     LogEntryOut,
     PerformanceOut,
+    RunnerEval,
     RunnerStatus,
     SignalOut,
     StrategyPreset,
@@ -737,4 +739,19 @@ async def runner_status(svc: Svc) -> RunnerStatus:
         return RunnerStatus(alive=False)
     beat = datetime.fromisoformat(raw)
     age = (datetime.now(UTC) - beat).total_seconds()
-    return RunnerStatus(alive=age <= 30, last_beat=beat, age_s=round(age, 1))
+    evaluated: list[RunnerEval] = []
+    try:
+        for field, note in sorted((await svc.redis.hgetall("runner:last_eval")).items()):
+            symbol, interval = field.split(":")
+            n = json.loads(note)
+            evaluated.append(
+                RunnerEval(
+                    symbol=symbol,
+                    interval=interval,
+                    bar_time=datetime.fromisoformat(n["bar"]),
+                    processed_at=datetime.fromisoformat(n["at"]),
+                )
+            )
+    except Exception:  # a status note is optional: never fail the liveness answer over it
+        evaluated = []
+    return RunnerStatus(alive=age <= 30, last_beat=beat, age_s=round(age, 1), evaluated=evaluated)

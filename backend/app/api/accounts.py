@@ -23,10 +23,12 @@ router = APIRouter(
 Svc = Annotated[Services, Depends(get_services)]
 
 
-def assess_permissions(info: dict[str, Any]) -> list[str]:
-    """Reasons a key must be rejected. Withdrawal rights are never acceptable (SPEC 12)."""
+def assess_permissions(info: dict[str, Any], sandbox: bool = False) -> list[str]:
+    """Reasons a key must be rejected. Withdrawal rights are never acceptable on a real account
+    (SPEC 12). ``sandbox`` (Demo/Testnet, play money) cannot turn withdrawals off on Binance's
+    side, so the check is waived there only."""
     problems = []
-    if info.get("canWithdraw"):
+    if info.get("canWithdraw") and not sandbox:
         problems.append(
             "key can withdraw funds: disable Withdrawals and Universal Transfer on Binance"
         )
@@ -50,7 +52,7 @@ async def probe(svc: Services, key: str, secret: str, is_testnet: bool) -> list[
     factory = svc.adapter_factory or default_factory(svc.settings.binance_trading_env)
     adapter = factory(key, secret, is_testnet)
     try:
-        return assess_permissions(await adapter.account_info())
+        return assess_permissions(await adapter.account_info(), sandbox=is_testnet)
     except ExchangeError as e:
         raise HTTPException(422, f"could not verify the key: {type(e).__name__}") from e
     finally:

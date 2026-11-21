@@ -113,6 +113,18 @@ describe('Bot detail', () => {
     await waitFor(() => expect(calls.some((c) => c.path === '/runner/status')).toBe(true))
     expect(screen.queryByText(/ไม่ตอบสนอง/)).not.toBeInTheDocument()
   })
+  it('shows proof of life: heartbeat, the last candle judged and the next one due', async () => {
+    const at = new Date(Date.now() - 5 * 60_000).toISOString()
+    mockApi({
+      ...base,
+      'GET /runner/status': () => ({ alive: true, last_beat: at, age_s: 4, evaluated: [{ symbol: 'BTCUSDT', interval: '1h', bar_time: at, processed_at: at }] }),
+      'GET /bots/b1/gates': () => ({ allowed: false, checks: [] }),
+    })
+    renderAt('/bots/b1')
+    expect(await screen.findByText(/Runner ทำงานอยู่/)).toBeInTheDocument()
+    expect(screen.getByText(/ตรวจแท่ง 1h ของ BTCUSDT/)).toBeInTheDocument()
+    expect(screen.getByText(/แท่งถัดไปปิด/)).toBeInTheDocument()
+  })
   it('warns when an active bot has no live runner', async () => {
     mockApi({ ...base, 'GET /runner/status': () => ({ alive: false, last_beat: null, age_s: null }), 'GET /bots/b1/gates': () => ({ allowed: false, checks: [] }) })
     renderAt('/bots/b1')

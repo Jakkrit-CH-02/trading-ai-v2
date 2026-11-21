@@ -1,6 +1,7 @@
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { Bell, Bot, FlaskConical, LayoutDashboard, LineChart, Moon, Search, Settings, ShieldAlert, Sparkles, Sun } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { useBotList } from '../features/bots/queries'
 import { logout, useAuth } from '../lib/auth'
 import { TotpHost } from '../lib/totp'
 import { useTheme } from '../lib/theme'
@@ -14,6 +15,12 @@ const NAV = [
   { to: '/backtest', label: 'Backtest Lab', icon: FlaskConical },
   { to: '/settings', label: 'Risk & Settings', icon: Settings },
 ]
+
+function ActiveBotsPill() {
+  const bots = useBotList()
+  const n = (bots.data ?? []).filter((b) => b.status === 'PAPER' || b.status === 'RUNNING').length
+  return <BotStatusPill status={n > 0 ? 'RUNNING' : 'PAUSED'} label={`${n} bots running`} />
+}
 
 function Rail() {
   return (
@@ -59,7 +66,7 @@ function Header({ paper }: { paper: boolean }) {
         <input aria-label="Search markets" placeholder="Search markets, e.g. BTC" className="w-full bg-transparent outline-none" />
       </label>
       <MarketStatusPill />
-      <BotStatusPill status="RUNNING" label="0 bots running" />
+      <ActiveBotsPill />
       <IconButton icon={<ShieldAlert size={16} />} label="Kill switch" className="text-down" />
       <IconButton icon={<Bell size={16} />} label="Notifications" />
       <IconButton icon={theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />} label="Toggle theme" onClick={toggle} />

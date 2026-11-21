@@ -146,23 +146,29 @@ async def test_account_needs_totp_is_encrypted_at_rest_and_only_shows_last4(env:
     assert any("API key added" in m for m in env.notifier.sent)
 
 
-async def test_a_key_that_can_withdraw_is_rejected_and_never_stored(env: Env) -> None:
-    env.info["canWithdraw"] = True
-    r = await env.c.post(
-        "/api/v1/accounts",
-        json={"label": "bad", "api_key": "KEY-abcdef1234", "api_secret": "SECRET-xyz98765"},
-        headers=CODE,
-    )
-    assert r.status_code == 422 and "withdraw" in str(r.json()["detail"]["problems"]).lower()
-    assert (await env.c.get("/api/v1/accounts")).json() == []
-    assert "account.rejected" in await actions(env)
-    env.info.update(canWithdraw=False, canTrade=False)
+async def test_a_key_that_cannot_trade_is_rejected_and_never_stored(env: Env) -> None:
+    env.info["canTrade"] = False
     r = await env.c.post(
         "/api/v1/accounts",
         json={"label": "ro", "api_key": "KEY-abcdef1234", "api_secret": "SECRET-xyz98765"},
         headers=CODE,
     )
     assert r.status_code == 422 and "cannot trade" in str(r.json()["detail"]["problems"])
+    assert (await env.c.get("/api/v1/accounts")).json() == []
+    assert "account.rejected" in await actions(env)
+
+
+async def test_a_demo_key_may_have_withdraw_rights_because_binance_cannot_turn_them_off(
+    env: Env,
+) -> None:
+    """Play money only: for real accounts assess_permissions still rejects (test_notify)."""
+    env.info["canWithdraw"] = True
+    r = await env.c.post(
+        "/api/v1/accounts",
+        json={"label": "demo", "api_key": "KEY-abcdef1234", "api_secret": "SECRET-xyz98765"},
+        headers=CODE,
+    )
+    assert r.status_code == 201
 
 
 async def test_live_accounts_are_refused_before_gate_b(env: Env) -> None:
@@ -179,10 +185,10 @@ async def test_live_accounts_are_refused_before_gate_b(env: Env) -> None:
     assert r.status_code == 403
 
 
-async def test_verify_revokes_a_key_that_gained_withdraw_rights(env: Env) -> None:
+async def test_verify_revokes_a_key_that_lost_trading_rights(env: Env) -> None:
     acc = await add_account(env)
     assert (await env.c.post(f"/api/v1/accounts/{acc['id']}/verify")).status_code == 200
-    env.info["canWithdraw"] = True
+    env.info["canTrade"] = False
     assert (await env.c.post(f"/api/v1/accounts/{acc['id']}/verify")).status_code == 422
     assert (await env.c.get("/api/v1/accounts")).json()[0]["permissions_checked_at"] is None
     assert (await env.c.post(f"/api/v1/accounts/{uuid.uuid4()}/verify")).status_code == 404
@@ -245,10 +251,10 @@ async def test_editing_params_creates_a_new_immutable_version(env: Env) -> None:
 async def test_start_needs_a_verified_account_then_runs_paper_and_audits(env: Env) -> None:
     acc = await add_account(env)
     bot = await make_bot(env, acc["id"])
-    env.info["canWithdraw"] = True
+    env.info["canTrade"] = False
     await env.c.post(f"/api/v1/accounts/{acc['id']}/verify")  # un-verifies the account
     assert (await env.c.post(f"/api/v1/bots/{bot['id']}/start")).status_code == 409
-    env.info["canWithdraw"] = False
+    env.info["canTrade"] = True
     await env.c.post(f"/api/v1/accounts/{acc['id']}/verify")
     r = await env.c.post(f"/api/v1/bots/{bot['id']}/start")
     assert r.status_code == 200 and r.json()["status"] == "PAPER"
@@ -607,8 +613,13 @@ async def test_bot_logs_merge_every_source_newest_first(env: Env) -> None:
 
 
 class FakeRedis:
-    def __init__(self, value: str | None) -> None:
+    def __init__(self, value: str | None, evaluated: dict[str, str] | None = None) -> None:
         self.value = value
+        self.evaluated = evaluated or {}
+
+    async def hgetall(self, key: str) -> dict[str, str]:
+        assert key == "runner:last_eval"
+        return self.evaluated
 
     async def get(self, key: str) -> str | None:
         assert key == "runner:heartbeat"
@@ -620,11 +631,25 @@ async def test_runner_status_reads_the_heartbeat(env: Env) -> None:
         "alive": False,
         "last_beat": None,
         "age_s": None,
+        "evaluated": [],
     }  # no redis configured
     env.svc.redis = FakeRedis(None)
     assert (await env.c.get("/api/v1/runner/status")).json()["alive"] is False
     env.svc.redis = FakeRedis(datetime.now(UTC).isoformat())
     j = (await env.c.get("/api/v1/runner/status")).json()
     assert j["alive"] is True and j["age_s"] < 5
+    note = '{"bar": "2026-11-21T12:00:00+00:00", "at": "2026-11-21T13:00:03+00:00"}'
+    env.svc.redis = FakeRedis(datetime.now(UTC).isoformat(), {"BTCUSDT:1h": note, "junk": "x"})
+    assert (await env.c.get("/api/v1/runner/status")).json()["evaluated"] == []  # bad note ignored
+    env.svc.redis = FakeRedis(datetime.now(UTC).isoformat(), {"BTCUSDT:1h": note})
+    ev = (await env.c.get("/api/v1/runner/status")).json()["evaluated"]
+    assert ev == [
+        {
+            "symbol": "BTCUSDT",
+            "interval": "1h",
+            "bar_time": "2026-11-21T12:00:00Z",
+            "processed_at": "2026-11-21T13:00:03Z",
+        }
+    ]
     env.svc.redis = FakeRedis((datetime.now(UTC) - timedelta(minutes=5)).isoformat())
     assert (await env.c.get("/api/v1/runner/status")).json()["alive"] is False  # stale beat

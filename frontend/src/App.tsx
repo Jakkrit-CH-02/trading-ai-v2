@@ -17,7 +17,7 @@ const DevUi = lazy(() => import('./features/dev/DevUi'))
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000, retry: 1 } } })
 
 function Soon({ name }: { name: string }) {
-  return <Card title={name} subtitle="Planned for Phase 5" />
+  return <Card title={name} subtitle="Planned for Phase 6 (AI layer)" />
 }
 
 function Gate() {
